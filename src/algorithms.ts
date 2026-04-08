@@ -1,124 +1,95 @@
-import type { Point, Node, PathfindingResult } from './types';
+import type { PathfindingResult } from './types';
+import { getConnectedNodes, getRoadDistance, getNodeById, mapNodes } from './mapData';
 
-const DIRECTIONS = [
-  { x: 0, y: -1 }, // Up
-  { x: 1, y: 0 },  // Right
-  { x: 0, y: 1 },  // Down
-  { x: -1, y: 0 }, // Left
-  { x: 1, y: -1 }, // Up-Right
-  { x: 1, y: 1 },  // Down-Right
-  { x: -1, y: 1 }, // Down-Left
-  { x: -1, y: -1 }, // Up-Left
-];
-
-const STRAIGHT_COST = 1;
-const DIAGONAL_COST = Math.sqrt(2);
-
-function getMovementCost(dx: number, dy: number): number {
-  return Math.abs(dx) + Math.abs(dy) === 2 ? DIAGONAL_COST : STRAIGHT_COST;
-}
-
-function getNeighbors(
-  point: Point,
-  grid: boolean[][],
-  width: number,
-  height: number
-): Point[] {
-  const neighbors: Point[] = [];
-  for (const dir of DIRECTIONS) {
-    const x = point.x + dir.x;
-    const y = point.y + dir.y;
-    if (x >= 0 && x < width && y >= 0 && y < height && !grid[y][x]) {
-      neighbors.push({ x, y });
-    }
-  }
-  return neighbors;
-}
-
-function heuristic(a: Point, b: Point): number {
-  // Euclidean distance
-  return Math.sqrt(Math.pow(a.x - b.x, 2) + Math.pow(a.y - b.y, 2));
-}
-
-function reconstructPath(node: Node): Point[] {
-  const path: Point[] = [];
-  let current: Node | null = node;
-  while (current) {
-    path.unshift({ x: current.x, y: current.y });
-    current = current.parent;
-  }
-  return path;
+function heuristic(nodeId: string, endId: string): number {
+  const node = getNodeById(nodeId);
+  const endNode = getNodeById(endId);
+  if (!node || !endNode) return Infinity;
+  // Euclidean distance heuristic
+  return Math.hypot(node.x - endNode.x, node.y - endNode.y);
 }
 
 export function aStar(
-  start: Point,
-  end: Point,
-  grid: boolean[][],
-  width: number,
-  height: number
+  startId: string,
+  endId: string
 ): PathfindingResult {
-  const openSet: Node[] = [];
+  if (!getNodeById(startId) || !getNodeById(endId)) {
+    return { path: [], visited: [], algorithm: 'astar', distance: Infinity };
+  }
+
+  const openSet = new Set<string>();
   const closedSet = new Set<string>();
-  const visited: Point[] = [];
+  const cameFrom: Map<string, string | null> = new Map();
+  const gScore: Map<string, number> = new Map();
+  const fScore: Map<string, number> = new Map();
+  const visited: string[] = [];
 
-  const startNode: Node = {
-    ...start,
-    g: 0,
-    h: heuristic(start, end),
-    f: heuristic(start, end),
-    parent: null,
-  };
+  mapNodes.forEach((node) => {
+    gScore.set(node.id, Infinity);
+    fScore.set(node.id, Infinity);
+  });
 
-  openSet.push(startNode);
+  gScore.set(startId, 0);
+  fScore.set(startId, heuristic(startId, endId));
+  cameFrom.set(startId, null);
+  openSet.add(startId);
 
-  while (openSet.length > 0) {
-    // Find node with lowest f score
-    let current = openSet[0];
-    let currentIndex = 0;
-    for (let i = 1; i < openSet.length; i++) {
-      if (openSet[i].f < current.f) {
-        current = openSet[i];
-        currentIndex = i;
+  while (openSet.size > 0) {
+    let current: string | null = null;
+    let currentF = Infinity;
+
+    for (const nodeId of openSet) {
+      const score = fScore.get(nodeId) ?? Infinity;
+      if (score < currentF) {
+        current = nodeId;
+        currentF = score;
       }
     }
 
-    visited.push({ x: current.x, y: current.y });
-
-    if (current.x === end.x && current.y === end.y) {
-      const path = reconstructPath(current);
-      const distance = current.g;
-      return { path, visited, algorithm: 'astar', distance };
+    if (current === null) {
+      break;
     }
 
-    openSet.splice(currentIndex, 1);
-    closedSet.add(`${current.x},${current.y}`);
+    openSet.delete(current);
 
-    const neighbors = getNeighbors(current, grid, width, height);
+    if (closedSet.has(current)) {
+      continue;
+    }
+
+    closedSet.add(current);
+    visited.push(current);
+
+    if (current === endId) {
+      const path: string[] = [];
+      let trace: string | null = endId;
+
+      while (trace !== null) {
+        path.unshift(trace);
+        trace = cameFrom.get(trace) ?? null;
+      }
+
+      return {
+        path,
+        visited,
+        algorithm: 'astar',
+        distance: gScore.get(endId) ?? Infinity,
+      };
+    }
+
+    const currentG = gScore.get(current) ?? Infinity;
+    const neighbors = getConnectedNodes(current);
+
     for (const neighbor of neighbors) {
-      if (closedSet.has(`${neighbor.x},${neighbor.y}`)) continue;
+      if (closedSet.has(neighbor.id)) continue;
 
-      const movementCost = getMovementCost(
-        neighbor.x - current.x,
-        neighbor.y - current.y
-      );
-      const g = current.g + movementCost;
-      const h = heuristic(neighbor, end);
-      const f = g + h;
+      const tentativeG = currentG + getRoadDistance(current, neighbor.id);
+      const neighborG = gScore.get(neighbor.id) ?? Infinity;
 
-      let openNode = openSet.find(n => n.x === neighbor.x && n.y === neighbor.y);
-      if (openNode && g < openNode.g) {
-        openNode.g = g;
-        openNode.f = f;
-        openNode.parent = current;
-      } else if (!openNode) {
-        const newNode: Node = {
-          ...neighbor,
-          g,
-          h,
-          f,
-          parent: current,
-        };
-        openSet.push(newNode);
+      if (tentativeG < neighborG) {
+        cameFrom.set(neighbor.id, current);
+        gScore.set(neighbor.id, tentativeG);
+        fScore.set(neighbor.id, tentativeG + heuristic(neighbor.id, endId));
+        openSet.add(neighbor.id);
       }
     }
   }
@@ -127,83 +98,67 @@ export function aStar(
 }
 
 export function dijkstra(
-  start: Point,
-  end: Point,
-  grid: boolean[][],
-  width: number,
-  height: number
+  startId: string,
+  endId: string
 ): PathfindingResult {
-  const distances: Map<string, number> = new Map();
-  const previousNodes: Map<string, Point | null> = new Map();
-  const unvisited = new Set<string>();
-  const visited: Point[] = [];
-
-  // Initialize distances
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      if (!grid[y][x]) {
-        const key = `${x},${y}`;
-        distances.set(key, Infinity);
-        previousNodes.set(key, null);
-        unvisited.add(key);
-      }
-    }
+  if (!getNodeById(startId) || !getNodeById(endId)) {
+    return { path: [], visited: [], algorithm: 'dijkstra', distance: Infinity };
   }
 
-  const startKey = `${start.x},${start.y}`;
-  distances.set(startKey, 0);
+  const distances: Map<string, number> = new Map();
+  const previousNodes: Map<string, string | null> = new Map();
+  const unvisited = new Set<string>();
+  const visited: string[] = [];
+
+  // Initialize distances
+  mapNodes.forEach(node => {
+    distances.set(node.id, Infinity);
+    previousNodes.set(node.id, null);
+    unvisited.add(node.id);
+  });
+
+  distances.set(startId, 0);
 
   while (unvisited.size > 0) {
     // Find unvisited node with smallest distance
     let current: string | null = null;
     let minDistance = Infinity;
 
-    for (const key of unvisited) {
-      const dist = distances.get(key) ?? Infinity;
+    for (const id of unvisited) {
+      const dist = distances.get(id) ?? Infinity;
       if (dist < minDistance) {
         minDistance = dist;
-        current = key;
+        current = id;
       }
     }
 
     if (current === null || minDistance === Infinity) break;
 
-    const [x, y] = current.split(',').map(Number);
-    visited.push({ x, y });
+    visited.push(current);
 
-    if (x === end.x && y === end.y) {
-      const path: Point[] = [];
-      let currentKey: string | null = `${end.x},${end.y}`;
-      while (currentKey !== null) {
-        const [cx, cy] = currentKey.split(',').map(Number);
-        path.unshift({ x: cx, y: cy });
-        currentKey = previousNodes.get(currentKey) ? 
-          `${(previousNodes.get(currentKey) as Point).x},${(previousNodes.get(currentKey) as Point).y}` : 
-          null;
+    if (current === endId) {
+      const path: string[] = [];
+      let currentId: string | null = endId;
+      while (currentId !== null) {
+        path.unshift(currentId);
+        currentId = previousNodes.get(currentId) ?? null;
       }
-      const distance = distances.get(currentKey ?? startKey) ?? Infinity;
-      return { path, visited, algorithm: 'dijkstra', distance };
+      return { path, visited, algorithm: 'dijkstra', distance: distances.get(endId) ?? Infinity };
     }
 
     unvisited.delete(current);
 
-    const currentPoint = { x, y };
-    const neighbors = getNeighbors(currentPoint, grid, width, height);
-
+    const neighbors = getConnectedNodes(current);
     for (const neighbor of neighbors) {
-      const neighborKey = `${neighbor.x},${neighbor.y}`;
-      if (!unvisited.has(neighborKey)) continue;
+      if (!unvisited.has(neighbor.id)) continue;
 
-      const movementCost = getMovementCost(
-        neighbor.x - x,
-        neighbor.y - y
-      );
-      const newDistance = (distances.get(current) ?? 0) + movementCost;
-      const oldDistance = distances.get(neighborKey) ?? Infinity;
+      const roadCost = getRoadDistance(current, neighbor.id);
+      const newDistance = (distances.get(current) ?? 0) + roadCost;
+      const oldDistance = distances.get(neighbor.id) ?? Infinity;
 
       if (newDistance < oldDistance) {
-        distances.set(neighborKey, newDistance);
-        previousNodes.set(neighborKey, currentPoint);
+        distances.set(neighbor.id, newDistance);
+        previousNodes.set(neighbor.id, current);
       }
     }
   }

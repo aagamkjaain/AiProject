@@ -1,17 +1,13 @@
 import React from 'react';
 import './Controls.css';
-import type { Point } from '../types';
+import { mapNodes } from '../mapData';
 
 interface ControlsProps {
-  gridWidth: number;
-  gridHeight: number;
-  start: Point | null;
-  end: Point | null;
-  obstacleCount: number;
-  onGenerateObstacles: (count: number) => void;
-  onClearAll: () => void;
+  start: string | null;
+  end: string | null;
   onRunAStar: () => void;
   onRunDijkstra: () => void;
+  onClearAll: () => void;
   isRunning: boolean;
   pathFound: boolean | null;
   distance: number;
@@ -20,78 +16,98 @@ interface ControlsProps {
 export const Controls: React.FC<ControlsProps> = ({
   start,
   end,
-  obstacleCount,
-  onGenerateObstacles,
-  onClearAll,
   onRunAStar,
   onRunDijkstra,
+  onClearAll,
   isRunning,
   pathFound,
   distance,
 }) => {
+  const startName = start ? mapNodes.find(n => n.id === start)?.name : null;
+  const endName = end ? mapNodes.find(n => n.id === end)?.name : null;
   const readyToRun = start && end && !isRunning;
+  const showDistance = pathFound === true && Number.isFinite(distance);
+  const distanceText = showDistance ? `${distance.toFixed(1)} units` : '--';
+  const distanceHint = isRunning
+    ? 'Calculating route distance...'
+    : showDistance
+      ? 'Shortest route distance for the selected journey.'
+      : 'Run A* or Dijkstra to calculate total distance travelled.';
 
   return (
     <div className="controls-panel">
       <div className="controls-section">
-        <h3>Instructions</h3>
-        <ul className="instructions">
-          <li>Click on the grid to set the <span className="green">start</span> point</li>
-          <li>Click again to set the <span className="red">end</span> point</li>
-          <li>Generate obstacles or click to place them</li>
-          <li>Run either algorithm to find the shortest path</li>
-        </ul>
+        <h3>Adventure Route Planner</h3>
+        <p style={{ fontSize: '12px', color: '#8a8c7e', marginTop: '4px' }}>
+          Find the shortest path between destinations
+        </p>
       </div>
 
       <div className="controls-section">
-        <h3>Map Setup</h3>
+        <h3>Route Setup</h3>
         <div className="control-group">
-          <label>Start Point: {start ? `(${start.x}, ${start.y})` : 'Not set'}</label>
+          <label>Starting Location:</label>
+          <div className="location-display">
+            {startName ? (
+              <>
+                <span className="location-badge" style={{ backgroundColor: '#b8c832' }}></span>
+                {startName}
+              </>
+            ) : (
+              <span style={{ color: '#8a8c7e' }}>Click a destination to start</span>
+            )}
+          </div>
         </div>
         <div className="control-group">
-          <label>End Point: {end ? `(${end.x}, ${end.y})` : 'Not set'}</label>
-        </div>
-        <div className="control-group">
-          <label>Obstacles: {obstacleCount}</label>
-          <button
-            onClick={() => onGenerateObstacles(Math.floor(Math.random() * 50) + 20)}
-            disabled={isRunning}
-            className="btn btn-secondary"
-          >
-            Generate Random Obstacles
-          </button>
+          <label>Destination:</label>
+          <div className="location-display">
+            {endName ? (
+              <>
+                <span className="location-badge" style={{ backgroundColor: '#f0a844' }}></span>
+                {endName}
+              </>
+            ) : (
+              <span style={{ color: '#8a8c7e' }}>Click a destination to end</span>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="controls-section">
-        <h3>Algorithms</h3>
+        <h3>Total Distance Travelled</h3>
+        <div className="distance-display">{distanceText}</div>
+        <p className="distance-caption">{distanceHint}</p>
+      </div>
+
+      <div className="controls-section">
+        <h3>Pathfinding</h3>
         <button
           onClick={onRunAStar}
           disabled={!readyToRun}
           className="btn btn-primary"
         >
-          Run A* Algorithm
+          A* Algorithm
         </button>
         <button
           onClick={onRunDijkstra}
           disabled={!readyToRun}
           className="btn btn-primary"
         >
-          Run Dijkstra's Algorithm
+          Dijkstra's Algorithm
         </button>
       </div>
 
       {pathFound === true && (
         <div className="controls-section result-success">
-          <h3>✓ Path Found!</h3>
-          <p>Distance: {distance.toFixed(2)}</p>
+          <h3>✓ Route Found!</h3>
+          <p>Distance: {distance.toFixed(1)} units</p>
         </div>
       )}
 
       {pathFound === false && (
         <div className="controls-section result-error">
-          <h3>✗ No Path Found</h3>
-          <p>The destination is unreachable.</p>
+          <h3>✗ No Route Found</h3>
+          <p>These locations are not connected.</p>
         </div>
       )}
 
@@ -101,7 +117,7 @@ export const Controls: React.FC<ControlsProps> = ({
           disabled={isRunning}
           className="btn btn-danger"
         >
-          Clear All
+          Clear Route
         </button>
       </div>
 
@@ -109,23 +125,23 @@ export const Controls: React.FC<ControlsProps> = ({
         <h3>Legend</h3>
         <div className="legend-item">
           <div className="legend-box" style={{ backgroundImage: 'linear-gradient(135deg, #b8c832, #a8b820)', border: '2px solid #b8c832' }}></div>
-          <span>Start</span>
+          <span>Start Location</span>
         </div>
         <div className="legend-item">
-          <div className="legend-box" style={{ backgroundImage: 'linear-gradient(135deg, #c9d63a, #b8c832)', border: '2px solid #c9d63a' }}></div>
-          <span>End</span>
+          <div className="legend-box" style={{ backgroundImage: 'linear-gradient(135deg, #f0a844, #e09834)', border: '2px solid #f0a844' }}></div>
+          <span>Destination</span>
         </div>
         <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: '#0d1a14', border: '1px solid #050908' }}></div>
-          <span>Obstacle</span>
+          <div className="legend-box" style={{ backgroundColor: '#b8c832', border: '1px solid #c9d63a' }}></div>
+          <span>Route</span>
         </div>
         <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: 'rgba(184, 200, 50, 0.3)', border: '1px solid rgba(184, 200, 50, 0.5)' }}></div>
-          <span>Visited</span>
+          <div className="legend-box" style={{ backgroundColor: 'rgba(217, 75, 75, 0.32)', border: '1px solid rgba(217, 75, 75, 0.75)' }}></div>
+          <span>Explored</span>
         </div>
         <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: '#8a8c7e', border: '1px solid #7a7c6e' }}></div>
-          <span>Path</span>
+          <div className="legend-box" style={{ backgroundColor: '#3a4a3e', border: '1px solid #2a3a2e' }}></div>
+          <span>Roadway</span>
         </div>
       </div>
     </div>

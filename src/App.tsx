@@ -1,139 +1,139 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import './App.css';
-import { Grid } from './components/Grid';
+import { Map3D } from './components/Map3D';
 import { Controls } from './components/Controls';
 import { aStar, dijkstra } from './algorithms';
-import type { Point, PathfindingResult } from './types';
+import type { PathfindingResult } from './types';
 
-const GRID_WIDTH = 40;
-const GRID_HEIGHT = 25;
-const CELL_SIZE = 20;
+const VISITED_STEP_MS = 140;
+const PATH_STEP_MS = 320;
+const TRANSITION_PAUSE_MS = 420;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
 
 function App() {
-  const [start, setStart] = useState<Point | null>(null);
-  const [end, setEnd] = useState<Point | null>(null);
-  const [obstacles, setObstacles] = useState<Set<string>>(new Set());
-  const [path, setPath] = useState<Point[]>([]);
-  const [visited, setVisited] = useState<Point[]>([]);
+  const [start, setStart] = useState<string | null>(null);
+  const [end, setEnd] = useState<string | null>(null);
+  const [path, setPath] = useState<string[]>([]);
+  const [visited, setVisited] = useState<string[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [distance, setDistance] = useState<number>(0);
   const [pathFound, setPathFound] = useState<boolean | null>(null);
+  const activeRunIdRef = useRef(0);
 
-  const buildGrid = useCallback(() => {
-    const grid: boolean[][] = [];
-    for (let y = 0; y < GRID_HEIGHT; y++) {
-      const row: boolean[] = [];
-      for (let x = 0; x < GRID_WIDTH; x++) {
-        row.push(obstacles.has(`${x},${y}`));
-      }
-      grid.push(row);
+  useEffect(() => {
+    return () => {
+      activeRunIdRef.current += 1;
+    };
+  }, []);
+
+  const handleNodeClick = useCallback((nodeId: string) => {
+    if (isRunning) {
+      return;
     }
-    return grid;
-  }, [obstacles]);
-
-  const handleCellClick = useCallback((x: number, y: number) => {
-    const key = `${x},${y}`;
-
-    // Can't place start/end on obstacles
-    if (obstacles.has(key)) return;
-
-    // Clear obstacles on the clicked cell
-    const newObstacles = new Set(obstacles);
-    newObstacles.delete(key);
-    setObstacles(newObstacles);
 
     // Toggle start point
-    if (start && start.x === x && start.y === y) {
+    if (start === nodeId) {
       setStart(null);
       return;
     }
 
     // Toggle end point
-    if (end && end.x === x && end.y === y) {
+    if (end === nodeId) {
       setEnd(null);
       return;
     }
 
     // Set start if not set
     if (!start) {
-      setStart({ x, y });
+      setStart(nodeId);
       return;
     }
 
     // Set end if not set
     if (!end) {
-      setEnd({ x, y });
+      setEnd(nodeId);
       return;
     }
 
     // If both are set, clicking selects new start
-    if (start) {
-      setStart({ x, y });
-      setEnd(null);
-    }
-  }, [start, end, obstacles]);
-
-  const generateObstacles = useCallback((count: number) => {
-    const newObstacles = new Set<string>();
-    let generated = 0;
-
-    while (generated < count) {
-      const x = Math.floor(Math.random() * GRID_WIDTH);
-      const y = Math.floor(Math.random() * GRID_HEIGHT);
-      const key = `${x},${y}`;
-
-      // Don't place obstacles on start or end points
-      if ((start && start.x === x && start.y === y) || 
-          (end && end.x === x && end.y === y)) {
-        continue;
-      }
-
-      if (!newObstacles.has(key)) {
-        newObstacles.add(key);
-        generated++;
-      }
-    }
-
-    setObstacles(newObstacles);
-  }, [start, end]);
+    setStart(nodeId);
+    setEnd(null);
+  }, [start, end, isRunning]);
 
   const runAlgorithm = useCallback(
-    async (algorithmFn: typeof aStar | typeof dijkstra) => {
+    (algorithmFn: typeof aStar | typeof dijkstra) => {
       if (!start || !end) return;
+
+      const runId = activeRunIdRef.current + 1;
+      activeRunIdRef.current = runId;
 
       setIsRunning(true);
       setPath([]);
       setVisited([]);
+      setDistance(0);
       setPathFound(null);
 
-      // Use setTimeout to allow UI to update
-      setTimeout(() => {
-        const grid = buildGrid();
-        const result: PathfindingResult = algorithmFn(
-          start,
-          end,
-          grid,
-          GRID_WIDTH,
-          GRID_HEIGHT
-        );
+      const result: PathfindingResult = algorithmFn(start, end);
 
-        setVisited(result.visited);
-        setPath(result.path);
+      const animateResult = async () => {
+        const seenVisited = new Set<string>();
+        const orderedVisited = result.visited.filter((nodeId) => {
+          if (seenVisited.has(nodeId)) {
+            return false;
+          }
+          seenVisited.add(nodeId);
+          return true;
+        });
+
+        for (const nodeId of orderedVisited) {
+          if (activeRunIdRef.current !== runId) {
+            return;
+          }
+
+          setVisited((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]));
+          await sleep(VISITED_STEP_MS);
+        }
+
+        if (result.path.length > 0) {
+          await sleep(TRANSITION_PAUSE_MS);
+
+          for (const nodeId of result.path) {
+            if (activeRunIdRef.current !== runId) {
+              return;
+            }
+
+            setPath((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]));
+            await sleep(PATH_STEP_MS);
+          }
+        }
+
+        if (activeRunIdRef.current !== runId) {
+          return;
+        }
+
         setDistance(result.distance);
         setPathFound(result.path.length > 0);
         setIsRunning(false);
-      }, 100);
+      };
+
+      void animateResult();
     },
-    [start, end, buildGrid]
+    [start, end]
   );
 
   const handleRunAStar = () => runAlgorithm(aStar);
   const handleRunDijkstra = () => runAlgorithm(dijkstra);
 
   const handleClearAll = useCallback(() => {
+    activeRunIdRef.current += 1;
+    setIsRunning(false);
     setStart(null);
     setEnd(null);
-    setObstacles(new Set());
     setPath([]);
     setVisited([]);
     setDistance(0);
@@ -143,44 +143,33 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>🗺️ Pathfinding Visualizer</h1>
-        <p>A* & Dijkstra's Algorithm Comparison</p>
+        <h1>AI FT 3</h1>
       </header>
 
-      <div className="app-container">
-        <div className="grid-container">
-          <Grid
-            width={GRID_WIDTH}
-            height={GRID_HEIGHT}
-            cellSize={CELL_SIZE}
+      <div className="app-layout">
+        <div className="map-container">
+          <Map3D
             start={start}
             end={end}
-            obstacles={obstacles}
             path={path}
             visited={visited}
-            onCellClick={handleCellClick}
+            onNodeClick={handleNodeClick}
           />
         </div>
 
-        <Controls
-          gridWidth={GRID_WIDTH}
-          gridHeight={GRID_HEIGHT}
-          start={start}
-          end={end}
-          obstacleCount={obstacles.size}
-          onGenerateObstacles={generateObstacles}
-          onClearAll={handleClearAll}
-          onRunAStar={handleRunAStar}
-          onRunDijkstra={handleRunDijkstra}
-          isRunning={isRunning}
-          pathFound={pathFound}
-          distance={distance}
-        />
+        <aside className="controls-sidebar">
+          <Controls
+            start={start}
+            end={end}
+            onRunAStar={handleRunAStar}
+            onRunDijkstra={handleRunDijkstra}
+            onClearAll={handleClearAll}
+            isRunning={isRunning}
+            pathFound={pathFound}
+            distance={distance}
+          />
+        </aside>
       </div>
-
-      <footer className="app-footer">
-        <p>Click on the grid to set start and end points. Generate or click to place obstacles.</p>
-      </footer>
     </div>
   );
 }
