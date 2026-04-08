@@ -26,6 +26,13 @@ export const Controls: React.FC<ControlsProps> = ({
   const startName = start ? mapNodes.find(n => n.id === start)?.name : null;
   const endName = end ? mapNodes.find(n => n.id === end)?.name : null;
   const readyToRun = start && end && !isRunning;
+  const showDistance = pathFound === true && Number.isFinite(distance);
+  const distanceText = showDistance ? `${distance.toFixed(1)} units` : '--';
+  const distanceHint = isRunning
+    ? 'Calculating route distance...'
+    : showDistance
+      ? 'Shortest route distance for the selected journey.'
+      : 'Run A* or Dijkstra to calculate total distance travelled.';
 
   return (
     <div className="controls-panel">
@@ -67,24 +74,9 @@ export const Controls: React.FC<ControlsProps> = ({
       </div>
 
       <div className="controls-section">
-        <h3>Available Destinations</h3>
-        <div className="destinations-list">
-          {mapNodes.map(node => {
-            const isCurrentStart = start === node.id;
-            const isCurrentEnd = end === node.id;
-            return (
-              <div
-                key={node.id}
-                className={`destination-item ${isCurrentStart ? 'is-start' : ''} ${isCurrentEnd ? 'is-end' : ''}`}
-              >
-                <span className="dest-dot" style={{
-                  backgroundColor: isCurrentStart ? '#b8c832' : isCurrentEnd ? '#f0a844' : '#3a4a3e'
-                }}></span>
-                <span>{node.name}</span>
-              </div>
-            );
-          })}
-        </div>
+        <h3>Total Distance Travelled</h3>
+        <div className="distance-display">{distanceText}</div>
+        <p className="distance-caption">{distanceHint}</p>
       </div>
 
       <div className="controls-section">
@@ -144,7 +136,7 @@ export const Controls: React.FC<ControlsProps> = ({
           <span>Route</span>
         </div>
         <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: 'rgba(184, 200, 50, 0.3)', border: '1px solid rgba(184, 200, 50, 0.5)' }}></div>
+          <div className="legend-box" style={{ backgroundColor: 'rgba(217, 75, 75, 0.32)', border: '1px solid rgba(217, 75, 75, 0.75)' }}></div>
           <span>Explored</span>
         </div>
         <div className="legend-item">

@@ -1,14 +1,6 @@
 import type { PathfindingResult } from './types';
 import { getConnectedNodes, getRoadDistance, getNodeById, mapNodes } from './mapData';
 
-interface NodeState {
-  id: string;
-  g: number; // Cost from start
-  h: number; // Heuristic cost to end (A*)
-  f: number; // Total cost (g + h)
-  parent: string | null;
-}
-
 function heuristic(nodeId: string, endId: string): number {
   const node = getNodeById(nodeId);
   const endNode = getNodeById(endId);
@@ -25,73 +17,79 @@ export function aStar(
     return { path: [], visited: [], algorithm: 'astar', distance: Infinity };
   }
 
-  const openSet: NodeState[] = [];
+  const openSet = new Set<string>();
   const closedSet = new Set<string>();
+  const cameFrom: Map<string, string | null> = new Map();
+  const gScore: Map<string, number> = new Map();
+  const fScore: Map<string, number> = new Map();
   const visited: string[] = [];
 
-  const startNode: NodeState = {
-    id: startId,
-    g: 0,
-    h: heuristic(startId, endId),
-    f: heuristic(startId, endId),
-    parent: null,
-  };
+  mapNodes.forEach((node) => {
+    gScore.set(node.id, Infinity);
+    fScore.set(node.id, Infinity);
+  });
 
-  openSet.push(startNode);
+  gScore.set(startId, 0);
+  fScore.set(startId, heuristic(startId, endId));
+  cameFrom.set(startId, null);
+  openSet.add(startId);
 
-  while (openSet.length > 0) {
-    // Find node with lowest f score
-    let current = openSet[0];
-    let currentIndex = 0;
-    for (let i = 1; i < openSet.length; i++) {
-      if (openSet[i].f < current.f) {
-        current = openSet[i];
-        currentIndex = i;
+  while (openSet.size > 0) {
+    let current: string | null = null;
+    let currentF = Infinity;
+
+    for (const nodeId of openSet) {
+      const score = fScore.get(nodeId) ?? Infinity;
+      if (score < currentF) {
+        current = nodeId;
+        currentF = score;
       }
     }
 
-    visited.push(current.id);
+    if (current === null) {
+      break;
+    }
 
-    if (current.id === endId) {
+    openSet.delete(current);
+
+    if (closedSet.has(current)) {
+      continue;
+    }
+
+    closedSet.add(current);
+    visited.push(current);
+
+    if (current === endId) {
       const path: string[] = [];
-      let node: NodeState | undefined = current;
-      while (node) {
-        path.unshift(node.id);
-        node = node.parent ? openSet.find(n => n.id === node!.parent) || (closedSet.has(node.parent) ? { id: node.parent, g: 0, h: 0, f: 0, parent: null } : undefined) : undefined;
-        if (node && node.parent === null && node.id !== startId) {
-          // Search in closed set for parent tracking
-          break;
-        }
+      let trace: string | null = endId;
+
+      while (trace !== null) {
+        path.unshift(trace);
+        trace = cameFrom.get(trace) ?? null;
       }
-      return { path, visited, algorithm: 'astar', distance: current.g };
+
+      return {
+        path,
+        visited,
+        algorithm: 'astar',
+        distance: gScore.get(endId) ?? Infinity,
+      };
     }
 
-    openSet.splice(currentIndex, 1);
-    closedSet.add(current.id);
+    const currentG = gScore.get(current) ?? Infinity;
+    const neighbors = getConnectedNodes(current);
 
-    const neighbors = getConnectedNodes(current.id);
     for (const neighbor of neighbors) {
       if (closedSet.has(neighbor.id)) continue;
 
-      const roadCost = getRoadDistance(current.id, neighbor.id);
-      const g = current.g + roadCost;
-      const h = heuristic(neighbor.id, endId);
-      const f = g + h;
+      const tentativeG = currentG + getRoadDistance(current, neighbor.id);
+      const neighborG = gScore.get(neighbor.id) ?? Infinity;
 
-      let openNode = openSet.find(n => n.id === neighbor.id);
-      if (openNode && g < openNode.g) {
-        openNode.g = g;
-        openNode.f = f;
-        openNode.parent = current.id;
-      } else if (!openNode) {
-        const newNode: NodeState = {
-          id: neighbor.id,
-          g,
-          h,
-          f,
-          parent: current.id,
-        };
-        openSet.push(newNode);
+      if (tentativeG < neighborG) {
+        cameFrom.set(neighbor.id, current);
+        gScore.set(neighbor.id, tentativeG);
+        fScore.set(neighbor.id, tentativeG + heuristic(neighbor.id, endId));
+        openSet.add(neighbor.id);
       }
     }
   }

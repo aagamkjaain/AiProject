@@ -66,6 +66,24 @@
   flex-shrink: 0;
 }
 
+.distance-display {
+  padding: 14px 12px;
+  border-radius: 6px;
+  border: 1px solid #3a4a3e;
+  background: rgba(13, 26, 20, 0.85);
+  color: #e8e8e2;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.distance-caption {
+  margin: 8px 0 0;
+  color: #8a8c7e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .destinations-list {
   display: flex;
   flex-direction: column;
