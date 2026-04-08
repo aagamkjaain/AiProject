@@ -1,0 +1,218 @@
+.controls-panel {
+  background: linear-gradient(135deg, #1a2a20 0%, #152018 100%);
+  border: 1px solid #2a3a2e;
+  border-radius: 8px;
+  padding: 28px;
+  width: 320px;
+  color: #e8e8e2;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(184, 200, 50, 0.1);
+  height: fit-content;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.controls-section {
+  margin-bottom: 24px;
+  padding: 20px;
+  background-color: rgba(13, 26, 20, 0.6);
+  border: 1px solid #2a3a2e;
+  border-radius: 6px;
+  position: relative;
+}
+
+.controls-section::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #b8c832, transparent);
+  opacity: 0.3;
+}
+
+.controls-section h3 {
+  margin: 0 0 12px 0;
+  color: #b8c832;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding-top: 8px;
+}
+
+.control-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+
+.control-group label {
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #e8e8e2;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.instructions {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.instructions li {
+  font-size: 12px;
+  margin-bottom: 10px;
+  color: #8a8c7e;
+  padding-left: 20px;
+  position: relative;
+  line-height: 1.5;
+}
+
+.instructions li:before {
+  content: "▶";
+  position: absolute;
+  left: 0;
+  color: #b8c832;
+  font-size: 10px;
+}
+
+.instructions .green {
+  color: #b8c832;
+  font-weight: 600;
+}
+
+.instructions .red {
+  color: #8a8c7e;
+  font-weight: 600;
+}
+
+.btn {
+  width: 100%;
+  padding: 12px 20px;
+  margin-bottom: 10px;
+  border: none;
+  border-radius: 24px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-family: var(--font-body);
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(184, 200, 50, 0.3);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #b8c832 0%, #a8b820 100%);
+  color: #0d1a14;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #c9d63a 0%, #b8c832 100%);
+}
+
+.btn-secondary {
+  background: linear-gradient(135deg, #8a8c7e 0%, #7a7c6e 100%);
+  color: #e8e8e2;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: linear-gradient(135deg, #9a9c8e 0%, #8a8c7e 100%);
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #6b7c5a 0%, #5a6b49 100%);
+  color: #e8e8e2;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7b8c6a 0%, #6a7b59 100%);
+}
+
+.result-success {
+  background-color: rgba(184, 200, 50, 0.08);
+  border: 1px solid rgba(184, 200, 50, 0.3);
+}
+
+.result-success h3 {
+  color: #b8c832;
+}
+
+.result-success p {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  color: #c9d63a;
+  font-weight: 500;
+}
+
+.result-error {
+  background-color: rgba(184, 200, 50, 0.04);
+  border: 1px solid #2a3a2e;
+}
+
+.result-error h3 {
+  color: #8a8c7e;
+}
+
+.result-error p {
+  margin: 8px 0 0 0;
+  font-size: 13px;
+  color: #8a8c7e;
+}
+
+.legend {
+  background-color: rgba(13, 26, 20, 0.3);
+  border-top: 1px solid rgba(184, 200, 50, 0.2);
+  margin-top: 24px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+  font-size: 12px;
+  color: #8a8c7e;
+}
+
+.legend-box {
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1px solid rgba(184, 200, 50, 0.5);
+}
+
+/* Scrollbar styling */
+.controls-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.controls-panel::-webkit-scrollbar-track {
+  background: rgba(13, 26, 20, 0.5);
+  border-radius: 3px;
+}
+
+.controls-panel::-webkit-scrollbar-thumb {
+  background: #2a3a2e;
+  border-radius: 3px;
+}
+
+.controls-panel::-webkit-scrollbar-thumb:hover {
+  background: #3a4a3e;
+}
