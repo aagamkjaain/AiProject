@@ -2,14 +2,57 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import './Map3D.css';
-import { mapNodes, roads, getNodeById } from '../mapData';
+import { mapNodes, roads } from '../mapData';
 
 interface Map3DProps {
   start: string | null;
   end: string | null;
   path: string[];
   visited: string[];
+  focusNodeId: string | null;
+  focusSignal: number;
+  onViewRotationChange?: (azimuth: number, polar: number) => void;
   onNodeClick: (nodeId: string) => void;
+}
+
+const SPHERE_RADIUS = 360;
+const LABEL_DISTANCE_FACTOR = 1.16;
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const FOCUS_CAMERA_DISTANCE = 240;
+const FOCUS_CAMERA_LIFT = 60;
+const FOCUS_TRANSITION_MS = 2000;
+
+function createSpherePosition(index: number, total: number): THREE.Vector3 {
+  const ratio = (index + 0.5) / total;
+  const y = 1 - ratio * 2;
+  const radius = Math.sqrt(Math.max(0, 1 - y * y));
+  const theta = GOLDEN_ANGLE * index;
+
+  return new THREE.Vector3(
+    Math.cos(theta) * radius * SPHERE_RADIUS,
+    y * SPHERE_RADIUS,
+    Math.sin(theta) * radius * SPHERE_RADIUS
+  );
+}
+
+function createArcPoints(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3[] {
+  const midpoint = from.clone().add(to).multiplyScalar(0.5);
+  if (midpoint.lengthSq() < 0.0001) {
+    midpoint.set(0, SPHERE_RADIUS + 90, 0);
+  }
+
+  const outwardPoint = midpoint
+    .normalize()
+    .multiplyScalar(SPHERE_RADIUS + 70 + from.distanceTo(to) * 0.05);
+
+  const curve = new THREE.QuadraticBezierCurve3(from, outwardPoint, to);
+  return curve.getPoints(24);
+}
+
+function easeInOutQuint(value: number): number {
+  return value < 0.5
+    ? 16 * value * value * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 5) / 2;
 }
 
 export const Map3D: React.FC<Map3DProps> = ({
@@ -17,10 +60,12 @@ export const Map3D: React.FC<Map3DProps> = ({
   end,
   path,
   visited,
+  focusNodeId,
+  focusSignal,
+  onViewRotationChange,
   onNodeClick,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -31,10 +76,24 @@ export const Map3D: React.FC<Map3DProps> = ({
   const pointerRef = useRef<THREE.Vector2>(new THREE.Vector2());
 
   const nodeMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
+  const labelSpritesRef = useRef<Map<string, THREE.Sprite>>(new Map());
+  const nodePositionsRef = useRef<Map<string, THREE.Vector3>>(new Map());
   const roadLinesRef = useRef<Array<{ fromId: string; toId: string; line: THREE.Line }>>([]);
+
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const focusedNodeIdRef = useRef<string | null>(null);
+  const focusedUntilRef = useRef<number>(0);
+  const focusTransitionRef = useRef<{
+    startTime: number;
+    durationMs: number;
+    fromCamera: THREE.Vector3;
+    toCamera: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    toTarget: THREE.Vector3;
+  } | null>(null);
   const onNodeClickRef = useRef(onNodeClick);
+  const onViewRotationChangeRef = useRef(onViewRotationChange);
 
   const visualStateRef = useRef<{
     start: string | null;
@@ -50,17 +109,70 @@ export const Map3D: React.FC<Map3DProps> = ({
     pathEdgeSet: new Set<string>(),
   });
 
-  const COLOR_NODE_DEFAULT = 0x5a6a56;
-  const COLOR_NODE_START = 0x7a9f6a;
-  const COLOR_NODE_END = 0xf0a844;
-  const COLOR_NODE_PATH = 0xb8c832;
-  const COLOR_NODE_VISITED = 0xd94b4b;
-  const COLOR_ROAD_DEFAULT = 0x3a4a3e;
-  const COLOR_ROAD_PATH = 0xb8c832;
+  const COLOR_NODE_DEFAULT = 0x4a4a4a;
+  const COLOR_NODE_START = 0xffffff;
+  const COLOR_NODE_END = 0xaaaaaa;
+  const COLOR_NODE_PATH = 0xff2222; // Red for best path
+  const COLOR_NODE_VISITED = 0xffffff; // White for traversed
+  const COLOR_ROAD_DEFAULT = 0x2a2a2a;
+  const COLOR_ROAD_PATH = 0xffffff;
 
   useEffect(() => {
     onNodeClickRef.current = onNodeClick;
   }, [onNodeClick]);
+
+  useEffect(() => {
+    onViewRotationChangeRef.current = onViewRotationChange;
+  }, [onViewRotationChange]);
+
+  useEffect(() => {
+    if (!focusNodeId) {
+      focusedNodeIdRef.current = null;
+      focusedUntilRef.current = 0;
+      focusTransitionRef.current = null;
+      return;
+    }
+
+    focusedNodeIdRef.current = focusNodeId;
+    focusedUntilRef.current = performance.now() + 5000;
+
+    const focusPosition = nodePositionsRef.current.get(focusNodeId);
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    if (!focusPosition || !camera || !controls) {
+      return;
+    }
+
+    const outwardDirection = focusPosition.clone();
+    if (outwardDirection.lengthSq() < 0.0001) {
+      outwardDirection.set(0, 0, 1);
+    }
+    outwardDirection.normalize();
+
+    const worldUp = new THREE.Vector3(0, 1, 0);
+    const tangentDirection = new THREE.Vector3().crossVectors(worldUp, outwardDirection);
+    if (tangentDirection.lengthSq() < 0.0001) {
+      tangentDirection.set(1, 0, 0);
+    }
+    tangentDirection.normalize();
+
+    const liftDirection = new THREE.Vector3().crossVectors(outwardDirection, tangentDirection).normalize();
+    const focusTarget = focusPosition.clone().multiplyScalar(0.94);
+    const nextCameraPosition = focusTarget
+      .clone()
+      .add(outwardDirection.clone().multiplyScalar(FOCUS_CAMERA_DISTANCE))
+      .add(liftDirection.multiplyScalar(FOCUS_CAMERA_LIFT));
+
+    focusTransitionRef.current = {
+      startTime: performance.now(),
+      durationMs: FOCUS_TRANSITION_MS,
+      fromCamera: camera.position.clone(),
+      toCamera: nextCameraPosition,
+      fromTarget: controls.target.clone(),
+      toTarget: focusTarget,
+    };
+  }, [focusNodeId, focusSignal]);
 
   useEffect(() => {
     const pathSet = new Set(path);
@@ -102,7 +214,7 @@ export const Map3D: React.FC<Map3DProps> = ({
       const material = mesh.material as THREE.MeshStandardMaterial;
       const isPrimaryHighlight = isStart || isEnd || isOnPath;
       material.color.setHex(color);
-      material.emissive.setHex(isPrimaryHighlight ? color : isVisited ? 0x6b1919 : 0x000000);
+      material.emissive.setHex(isPrimaryHighlight ? color : isVisited ? 0x111111 : 0x000000);
       material.emissiveIntensity = isPrimaryHighlight ? 0.35 : isVisited ? 0.2 : 0.05;
     });
 
@@ -111,45 +223,31 @@ export const Map3D: React.FC<Map3DProps> = ({
       const isPathRoad = pathEdgeSet.has(roadKey);
       const material = line.material as THREE.LineBasicMaterial;
       material.color.setHex(isPathRoad ? COLOR_ROAD_PATH : COLOR_ROAD_DEFAULT);
-      material.opacity = isPathRoad ? 1 : 0.75;
+      material.opacity = isPathRoad ? 1 : 0.62;
     });
   }, [start, end, path, visited]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0d1a14);
+    scene.fog = new THREE.FogExp2(0x020202, 0.00095);
     sceneRef.current = scene;
 
     const width = container.clientWidth;
     const height = container.clientHeight;
-    const camera = new THREE.PerspectiveCamera(55, width / height, 1, 4000);
-
-    const bounds = mapNodes.reduce(
-      (acc, node) => ({
-        minX: Math.min(acc.minX, node.x),
-        maxX: Math.max(acc.maxX, node.x),
-        minY: Math.min(acc.minY, node.y),
-        maxY: Math.max(acc.maxY, node.y),
-      }),
-      { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
-    );
-
-    const mapCenter = new THREE.Vector3(
-      (bounds.minX + bounds.maxX) / 2,
-      0,
-      (bounds.minY + bounds.maxY) / 2
-    );
-
-    camera.position.set(mapCenter.x + 80, 460, mapCenter.z + 760);
-    camera.lookAt(mapCenter.x, 30, mapCenter.z);
+    const camera = new THREE.PerspectiveCamera(56, width / height, 1, 5000);
+    camera.position.set(0, 220, 980);
+    camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
+    renderer.setClearColor(0x000000, 0);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
@@ -158,44 +256,54 @@ export const Map3D: React.FC<Map3DProps> = ({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.target.set(mapCenter.x, 15, mapCenter.z);
-    controls.minDistance = 260;
-    controls.maxDistance = 1700;
-    controls.minPolarAngle = Math.PI * 0.1;
-    controls.maxPolarAngle = Math.PI * 0.49;
+    controls.target.set(0, 0, 0);
+    controls.minDistance = 500;
+    controls.maxDistance = 1900;
+    controls.minPolarAngle = 0.1;
+    controls.maxPolarAngle = Math.PI - 0.1;
     controlsRef.current = controls;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.55);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.46);
     scene.add(ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.95);
-    directionalLight.position.set(mapCenter.x + 180, 720, mapCenter.z + 220);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    scene.add(directionalLight);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
+    keyLight.position.set(260, 520, 410);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.width = 2048;
+    keyLight.shadow.mapSize.height = 2048;
+    scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xb8c832, 0.25);
-    fillLight.position.set(mapCenter.x - 350, 280, mapCenter.z - 250);
-    scene.add(fillLight);
+    const rimLight = new THREE.DirectionalLight(0x888888, 0.35);
+    rimLight.position.set(-520, -180, -320);
+    scene.add(rimLight);
 
-    const groundGeometry = new THREE.PlaneGeometry(2200, 1400);
-    const groundMaterial = new THREE.MeshPhongMaterial({
-      color: 0x132117,
-      shininess: 8,
+    const starCount = 2600;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i += 1) {
+      const radius = 1400 + Math.random() * 800;
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.acos(1 - 2 * Math.random());
+
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.cos(phi);
+      const z = radius * Math.sin(phi) * Math.sin(theta);
+
+      const base = i * 3;
+      starPositions[base] = x;
+      starPositions[base + 1] = y;
+      starPositions[base + 2] = z;
+    }
+
+    const starsGeometry = new THREE.BufferGeometry();
+    starsGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    const starsMaterial = new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 1.8,
       transparent: true,
-      opacity: 0.92,
+      opacity: 0.68,
+      depthWrite: false,
     });
-    const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-    ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.2;
-    ground.receiveShadow = true;
-    scene.add(ground);
-
-    const grid = new THREE.GridHelper(2200, 44, 0x2a4a36, 0x203628);
-    (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = 0.35;
-    scene.add(grid);
+    scene.add(new THREE.Points(starsGeometry, starsMaterial));
 
     const roadsGroup = new THREE.Group();
     const nodesGroup = new THREE.Group();
@@ -204,27 +312,26 @@ export const Map3D: React.FC<Map3DProps> = ({
     scene.add(nodesGroup);
     scene.add(labelsGroup);
 
-    const createLabel = (text: string) => {
+    const createLabel = (text: string): THREE.Sprite | null => {
       const canvas = document.createElement('canvas');
+      canvas.width = 768;
+      canvas.height = 160;
       const context = canvas.getContext('2d');
-
       if (!context) {
         return null;
       }
 
-      canvas.width = 512;
-      canvas.height = 128;
       context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = 'rgba(16, 32, 24, 0.75)';
-      context.fillRect(12, 24, 488, 80);
-      context.strokeStyle = 'rgba(184, 200, 50, 0.7)';
+      context.fillStyle = 'rgba(5, 5, 5, 0.8)';
+      context.fillRect(30, 38, 708, 84);
+      context.strokeStyle = 'rgba(255, 255, 255, 0.5)';
       context.lineWidth = 3;
-      context.strokeRect(12, 24, 488, 80);
-      context.fillStyle = '#dfe8a6';
-      context.font = '700 38px Inter, Arial, sans-serif';
+      context.strokeRect(30, 38, 708, 84);
+      context.fillStyle = '#ffffff';
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+      context.font = '700 44px Righteous, Anton, sans-serif';
+      context.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.needsUpdate = true;
@@ -236,60 +343,83 @@ export const Map3D: React.FC<Map3DProps> = ({
       });
 
       const sprite = new THREE.Sprite(material);
-      sprite.scale.set(84, 21, 1);
+      const labelScaleX = 58 + Math.min(36, text.length * 0.85);
+      const labelScaleY = 16;
+
+      sprite.scale.set(labelScaleX, labelScaleY, 1);
+      sprite.userData = {
+        baseScaleX: labelScaleX,
+        baseScaleY: labelScaleY,
+      };
+
       return sprite;
     };
 
+    nodePositionsRef.current.clear();
+    mapNodes.forEach((node, index) => {
+      nodePositionsRef.current.set(node.id, createSpherePosition(index, mapNodes.length));
+    });
+
     roadLinesRef.current = [];
     roads.forEach((road) => {
-      const fromNode = getNodeById(road.fromId);
-      const toNode = getNodeById(road.toId);
-      if (!fromNode || !toNode) return;
+      const fromPosition = nodePositionsRef.current.get(road.fromId);
+      const toPosition = nodePositionsRef.current.get(road.toId);
+      if (!fromPosition || !toPosition) {
+        return;
+      }
 
-      const geometry = new THREE.BufferGeometry();
-      const positions = new Float32Array([
-        fromNode.x, 2, fromNode.y,
-        toNode.x, 2, toNode.y,
-      ]);
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      const points = createArcPoints(fromPosition, toPosition);
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const material = new THREE.LineBasicMaterial({
         color: COLOR_ROAD_DEFAULT,
         transparent: true,
-        opacity: 0.75,
+        opacity: 0.62,
       });
 
       const line = new THREE.Line(geometry, material);
       roadsGroup.add(line);
-      roadLinesRef.current.push({ fromId: road.fromId, toId: road.toId, line });
+      roadLinesRef.current.push({
+        fromId: road.fromId,
+        toId: road.toId,
+        line,
+      });
     });
 
     nodeMeshesRef.current.clear();
+    labelSpritesRef.current.clear();
+
     mapNodes.forEach((node, index) => {
-      const geometry = new THREE.SphereGeometry(9, 28, 28);
+      const position = nodePositionsRef.current.get(node.id);
+      if (!position) {
+        return;
+      }
+
+      const geometry = new THREE.SphereGeometry(7.6, 24, 24);
       const material = new THREE.MeshStandardMaterial({
         color: COLOR_NODE_DEFAULT,
         emissive: 0x000000,
         emissiveIntensity: 0.05,
-        roughness: 0.42,
-        metalness: 0.14,
+        roughness: 0.36,
+        metalness: 0.18,
       });
 
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(node.x, 10, node.y);
+      mesh.position.copy(position);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.userData = {
         nodeId: node.id,
         hovered: false,
-        phase: index * 0.35,
+        phase: index * 0.37,
       };
       nodesGroup.add(mesh);
       nodeMeshesRef.current.set(node.id, mesh);
 
       const label = createLabel(node.name);
       if (label) {
-        label.position.set(node.x, 31, node.y);
+        label.position.copy(position.clone().multiplyScalar(LABEL_DISTANCE_FACTOR));
         labelsGroup.add(label);
+        labelSpritesRef.current.set(node.id, label);
       }
     });
 
@@ -300,7 +430,7 @@ export const Map3D: React.FC<Map3DProps> = ({
     };
 
     const pickNode = () => {
-      const nodeMeshes = [...nodeMeshesRef.current.values()];
+      const nodeMeshes = Array.from(nodeMeshesRef.current.values());
       raycasterRef.current.setFromCamera(pointerRef.current, camera);
       const intersections = raycasterRef.current.intersectObjects(nodeMeshes, false);
 
@@ -346,7 +476,7 @@ export const Map3D: React.FC<Map3DProps> = ({
 
       updatePointer(event);
 
-      if (dragDistance < 6) {
+      if (dragDistance < 8) {
         const clickedNode = pickNode();
         const nodeId = clickedNode?.userData.nodeId;
         if (typeof nodeId === 'string') {
@@ -362,6 +492,7 @@ export const Map3D: React.FC<Map3DProps> = ({
       if (hoveredNodeRef.current) {
         hoveredNodeRef.current.userData.hovered = false;
       }
+
       hoveredNodeRef.current = null;
       renderer.domElement.style.cursor = 'grab';
     };
@@ -375,7 +506,6 @@ export const Map3D: React.FC<Map3DProps> = ({
     const resizeObserver = new ResizeObserver(() => {
       const nextWidth = container.clientWidth;
       const nextHeight = container.clientHeight;
-
       if (nextWidth === 0 || nextHeight === 0) {
         return;
       }
@@ -387,33 +517,107 @@ export const Map3D: React.FC<Map3DProps> = ({
     resizeObserver.observe(container);
 
     const clock = new THREE.Clock();
-
     const animate = () => {
+      const focusTransition = focusTransitionRef.current;
+      if (focusTransition) {
+        const elapsedMs = performance.now() - focusTransition.startTime;
+        const normalizedProgress = Math.max(0, Math.min(1, elapsedMs / focusTransition.durationMs));
+        const easedProgress = easeInOutQuint(normalizedProgress);
+
+        camera.position.lerpVectors(
+          focusTransition.fromCamera,
+          focusTransition.toCamera,
+          easedProgress
+        );
+        controls.target.lerpVectors(
+          focusTransition.fromTarget,
+          focusTransition.toTarget,
+          easedProgress
+        );
+
+        if (normalizedProgress >= 1) {
+          focusTransitionRef.current = null;
+        }
+      }
+
       const elapsed = clock.getElapsedTime();
       const currentState = visualStateRef.current;
+      const hoveredNodeId = (hoveredNodeRef.current?.userData.nodeId as string | undefined) ?? null;
+      const activeFocusedNodeId =
+        performance.now() < focusedUntilRef.current ? focusedNodeIdRef.current : null;
 
       nodeMeshesRef.current.forEach((mesh, nodeId) => {
         const material = mesh.material as THREE.MeshStandardMaterial;
         const isStartNode = currentState.start === nodeId;
         const isEndNode = currentState.end === nodeId;
         const isPathNode = currentState.pathSet.has(nodeId);
+        const isVisitedNode = currentState.visitedSet.has(nodeId);
         const isImportant = isStartNode || isEndNode || isPathNode;
+        const isHovered = hoveredNodeId === nodeId;
+        const isFocused = activeFocusedNodeId === nodeId;
         const phase = typeof mesh.userData.phase === 'number' ? mesh.userData.phase : 0;
-        const pulse = isImportant ? 1 + Math.sin(elapsed * 3 + phase) * 0.08 : 1;
-        const isHovered = Boolean(mesh.userData.hovered);
-        const nextScale = isHovered ? pulse * 1.18 : pulse;
 
-        mesh.scale.setScalar(nextScale);
+        const pathPulse = isImportant ? 1 + Math.sin(elapsed * 2.8 + phase) * 0.08 : 1;
+        const hoverPulse = isHovered ? 1 + Math.sin(elapsed * 8.4 + phase) * 0.07 : 1;
+        const focusPulse = isFocused ? 1.32 + Math.sin(elapsed * 6.4 + phase) * 0.08 : 1;
+        const targetScale = pathPulse * (isHovered ? 1.5 * hoverPulse : 1) * focusPulse;
+
+        mesh.scale.x = THREE.MathUtils.lerp(mesh.scale.x, targetScale, 0.22);
+        mesh.scale.y = THREE.MathUtils.lerp(mesh.scale.y, targetScale, 0.22);
+        mesh.scale.z = THREE.MathUtils.lerp(mesh.scale.z, targetScale, 0.22);
 
         if (isImportant) {
-          material.emissiveIntensity = 0.28 + (Math.sin(elapsed * 4 + phase) + 1) * 0.1;
+          material.emissiveIntensity = 0.3 + (Math.sin(elapsed * 3.8 + phase) + 1) * 0.1;
+        } else if (isFocused) {
+          material.emissiveIntensity = 0.36;
+        } else if (isVisitedNode) {
+          material.emissiveIntensity = isHovered ? 0.3 : 0.18;
+        } else {
+          material.emissiveIntensity = isHovered ? 0.12 : 0.05;
+        }
+
+        const label = labelSpritesRef.current.get(nodeId);
+        if (label) {
+          const labelMaterial = label.material as THREE.SpriteMaterial;
+          const baseScaleX =
+            typeof label.userData.baseScaleX === 'number' ? label.userData.baseScaleX : 64;
+          const baseScaleY =
+            typeof label.userData.baseScaleY === 'number' ? label.userData.baseScaleY : 16;
+
+          const labelPulse = isHovered
+            ? 1.6 + Math.sin(elapsed * 7.2 + phase) * 0.07
+            : isFocused
+              ? 1.34 + Math.sin(elapsed * 6 + phase) * 0.05
+              : 1;
+          const targetScaleX = baseScaleX * labelPulse;
+          const targetScaleY = baseScaleY * labelPulse;
+
+          label.scale.x = THREE.MathUtils.lerp(label.scale.x, targetScaleX, 0.2);
+          label.scale.y = THREE.MathUtils.lerp(label.scale.y, targetScaleY, 0.2);
+          labelMaterial.opacity = isHovered || isFocused ? 1 : isImportant ? 0.92 : 0.78;
+
+          const staticPosition = nodePositionsRef.current.get(nodeId);
+          if (staticPosition) {
+            const distanceFactor = isHovered
+              ? LABEL_DISTANCE_FACTOR + 0.045
+              : isFocused
+                ? LABEL_DISTANCE_FACTOR + 0.03
+                : LABEL_DISTANCE_FACTOR;
+            label.position.copy(staticPosition.clone().multiplyScalar(distanceFactor));
+          }
         }
       });
 
       controls.update();
 
-      renderer.render(scene, camera);
+      if (onViewRotationChangeRef.current) {
+        onViewRotationChangeRef.current(
+          controls.getAzimuthalAngle(),
+          controls.getPolarAngle()
+        );
+      }
 
+      renderer.render(scene, camera);
       animationFrameRef.current = requestAnimationFrame(animate);
     };
 
@@ -433,7 +637,12 @@ export const Map3D: React.FC<Map3DProps> = ({
       renderer.domElement.removeEventListener('pointerleave', onPointerLeave);
 
       scene.traverse((object) => {
-        if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Sprite) {
+        if (
+          object instanceof THREE.Mesh ||
+          object instanceof THREE.Line ||
+          object instanceof THREE.Sprite ||
+          object instanceof THREE.Points
+        ) {
           if ('geometry' in object && object.geometry) {
             object.geometry.dispose();
           }
@@ -460,14 +669,19 @@ export const Map3D: React.FC<Map3DProps> = ({
       });
 
       renderer.dispose();
-
       if (container.contains(renderer.domElement)) {
         container.removeChild(renderer.domElement);
       }
 
       hoveredNodeRef.current = null;
+      focusedNodeIdRef.current = null;
+      focusedUntilRef.current = 0;
+      focusTransitionRef.current = null;
       nodeMeshesRef.current.clear();
+      labelSpritesRef.current.clear();
+      nodePositionsRef.current.clear();
       roadLinesRef.current = [];
+
       controlsRef.current = null;
       rendererRef.current = null;
       cameraRef.current = null;

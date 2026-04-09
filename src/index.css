@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Anton:ital,wght@0,400;1,400&family=DM+Sans:ital,opsz,wght@0,9..40,100..700;1,9..40,100..700&family=Inter:ital,opsz,wght@0,8..72,100..900;1,8..72,100..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Anton:ital,wght@0,400;1,400&family=Righteous&display=swap');
 
 :root {
   /* Color Palette - Dark Adventure Theme */
@@ -13,9 +13,10 @@
   --border-light: #3a4a3e;
   
   /* Typography */
-  --font-heading: 'Anton', sans-serif;
-  --font-body: 'Inter', sans-serif;
-  --font-secondary: 'DM Sans', sans-serif;
+  --font-heading: 'Righteous', 'Anton', sans-serif;
+  --font-body: 'Righteous', 'Anton', sans-serif;
+  --font-secondary: 'Righteous', 'Anton', sans-serif;
+  --font-quirky: 'Righteous', 'Anton', sans-serif;
 
   font: 16px/1.6 var(--font-body);
   letter-spacing: 0.02em;
@@ -79,7 +80,7 @@ p {
 
 code,
 .counter {
-  font-family: 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-quirky);
 }
 
 code {

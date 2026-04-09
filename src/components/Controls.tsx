@@ -1,46 +1,166 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import './Controls.css';
 import { mapNodes } from '../mapData';
 
 interface ControlsProps {
   start: string | null;
   end: string | null;
-  onRunAStar: () => void;
-  onRunDijkstra: () => void;
   onClearAll: () => void;
   isRunning: boolean;
   pathFound: boolean | null;
   distance: number;
+  focusedNodeId: string | null;
+  onSearchCity: (nodeId: string) => void;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
   start,
   end,
-  onRunAStar,
-  onRunDijkstra,
   onClearAll,
   isRunning,
   pathFound,
   distance,
+  focusedNodeId,
+  onSearchCity,
 }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searchFeedback, setSearchFeedback] = useState<string | null>(null);
+
+  const sortedNodes = useMemo(
+    () => [...mapNodes].sort((left, right) => left.name.localeCompare(right.name)),
+    []
+  );
+
   const startName = start ? mapNodes.find(n => n.id === start)?.name : null;
   const endName = end ? mapNodes.find(n => n.id === end)?.name : null;
-  const readyToRun = start && end && !isRunning;
+  const focusedNodeName = focusedNodeId
+    ? mapNodes.find((node) => node.id === focusedNodeId)?.name ?? null
+    : null;
+
+  const matchedCities = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    if (query.length === 0) {
+      return sortedNodes.slice(0, 8);
+    }
+
+    return sortedNodes
+      .filter((node) => node.name.toLowerCase().includes(query))
+      .slice(0, 8);
+  }, [searchTerm, sortedNodes]);
+
   const showDistance = pathFound === true && Number.isFinite(distance);
-  const distanceText = showDistance ? `${distance.toFixed(1)} units` : '--';
+  const distanceText = showDistance
+    ? `${distance.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })} km`
+    : '--';
   const distanceHint = isRunning
     ? 'Calculating route distance...'
     : showDistance
-      ? 'Shortest route distance for the selected journey.'
+      ? 'Shortest path distance computed from geodesic city-to-city road lengths.'
       : 'Run A* or Dijkstra to calculate total distance travelled.';
+
+  useEffect(() => {
+    if (!focusedNodeName) {
+      return;
+    }
+
+    setSearchTerm(focusedNodeName);
+    setSearchFeedback(`Focused on ${focusedNodeName}`);
+  }, [focusedNodeName]);
+
+  const handleSelectCity = (nodeId: string) => {
+    const selectedNode = mapNodes.find((node) => node.id === nodeId);
+    if (!selectedNode) {
+      return;
+    }
+
+    setSearchTerm(selectedNode.name);
+    setShowSuggestions(false);
+    setSearchFeedback(`Focused on ${selectedNode.name}`);
+    onSearchCity(selectedNode.id);
+  };
+
+  const handleSearchSubmit: React.FormEventHandler<HTMLFormElement> = (event) => {
+    event.preventDefault();
+
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) {
+      setSearchFeedback('Type a city name to search.');
+      return;
+    }
+
+    const exactMatch = sortedNodes.find((node) => node.name.toLowerCase() === query);
+    if (exactMatch) {
+      handleSelectCity(exactMatch.id);
+      return;
+    }
+
+    const firstMatch = sortedNodes.find((node) => node.name.toLowerCase().includes(query));
+    if (firstMatch) {
+      handleSelectCity(firstMatch.id);
+      return;
+    }
+
+    setSearchFeedback('No matching city found. Try a different spelling.');
+    setShowSuggestions(true);
+  };
 
   return (
     <div className="controls-panel">
       <div className="controls-section">
         <h3>Adventure Route Planner</h3>
-        <p style={{ fontSize: '12px', color: '#8a8c7e', marginTop: '4px' }}>
+        <p className="section-subtitle">
           Find the shortest path between destinations
         </p>
+      </div>
+
+      <div className="controls-section">
+        <h3>City Search</h3>
+        <form className="search-form" onSubmit={handleSearchSubmit}>
+          <input
+            type="text"
+            className="search-input"
+            placeholder="Search city and focus node"
+            value={searchTerm}
+            onChange={(event) => {
+              setSearchTerm(event.target.value);
+              setShowSuggestions(true);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={() => {
+              window.setTimeout(() => {
+                setShowSuggestions(false);
+              }, 120);
+            }}
+          />
+          <button type="submit" className="btn btn-primary search-button">
+            Locate
+          </button>
+        </form>
+
+        {showSuggestions && (
+          <div className="search-results">
+            {matchedCities.length > 0 ? (
+              matchedCities.map((node) => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className="search-result-item"
+                  onClick={() => handleSelectCity(node.id)}
+                >
+                  {node.name}
+                </button>
+              ))
+            ) : (
+              <div className="search-empty">No cities match your search.</div>
+            )}
+          </div>
+        )}
+
+        {searchFeedback && <p className="search-feedback">{searchFeedback}</p>}
       </div>
 
       <div className="controls-section">
@@ -54,7 +174,7 @@ export const Controls: React.FC<ControlsProps> = ({
                 {startName}
               </>
             ) : (
-              <span style={{ color: '#8a8c7e' }}>Click a destination to start</span>
+              <span className="location-empty">Click a destination to start</span>
             )}
           </div>
         </div>
@@ -67,7 +187,7 @@ export const Controls: React.FC<ControlsProps> = ({
                 {endName}
               </>
             ) : (
-              <span style={{ color: '#8a8c7e' }}>Click a destination to end</span>
+              <span className="location-empty">Click a destination to end</span>
             )}
           </div>
         </div>
@@ -78,31 +198,6 @@ export const Controls: React.FC<ControlsProps> = ({
         <div className="distance-display">{distanceText}</div>
         <p className="distance-caption">{distanceHint}</p>
       </div>
-
-      <div className="controls-section">
-        <h3>Pathfinding</h3>
-        <button
-          onClick={onRunAStar}
-          disabled={!readyToRun}
-          className="btn btn-primary"
-        >
-          A* Algorithm
-        </button>
-        <button
-          onClick={onRunDijkstra}
-          disabled={!readyToRun}
-          className="btn btn-primary"
-        >
-          Dijkstra's Algorithm
-        </button>
-      </div>
-
-      {pathFound === true && (
-        <div className="controls-section result-success">
-          <h3>✓ Route Found!</h3>
-          <p>Distance: {distance.toFixed(1)} units</p>
-        </div>
-      )}
 
       {pathFound === false && (
         <div className="controls-section result-error">
@@ -121,29 +216,6 @@ export const Controls: React.FC<ControlsProps> = ({
         </button>
       </div>
 
-      <div className="controls-section legend">
-        <h3>Legend</h3>
-        <div className="legend-item">
-          <div className="legend-box" style={{ backgroundImage: 'linear-gradient(135deg, #b8c832, #a8b820)', border: '2px solid #b8c832' }}></div>
-          <span>Start Location</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-box" style={{ backgroundImage: 'linear-gradient(135deg, #f0a844, #e09834)', border: '2px solid #f0a844' }}></div>
-          <span>Destination</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: '#b8c832', border: '1px solid #c9d63a' }}></div>
-          <span>Route</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: 'rgba(217, 75, 75, 0.32)', border: '1px solid rgba(217, 75, 75, 0.75)' }}></div>
-          <span>Explored</span>
-        </div>
-        <div className="legend-item">
-          <div className="legend-box" style={{ backgroundColor: '#3a4a3e', border: '1px solid #2a3a2e' }}></div>
-          <span>Roadway</span>
-        </div>
-      </div>
     </div>
   );
 };
