@@ -1,8 +1,12 @@
 import type { Point } from './types';
+import { cityCoordinates } from './cityCoordinates';
 
 export interface MapNode extends Point {
   id: string;
   name: string;
+  lat: number;
+  lon: number;
+  countryCode: string;
 }
 
 export interface Road {
@@ -11,148 +15,238 @@ export interface Road {
   distance: number;
 }
 
-// Create a networks of destinations from Thane to Pune with accurate distances
-// Main highway route west to east, with Imagica as the central hub
-export const mapNodes: MapNode[] = [
-  // Starting point - Thane West
-  { id: 'thane', x: 80, y: 300, name: 'Thane' },
-  { id: 'nthane', x: 120, y: 80, name: 'North Thane' },
-  
-  // Eastern Express Highway and connecting towns
-  { id: 'kalyan', x: 170, y: 320, name: 'Kalyan' },
-  { id: 'kalyaneast', x: 210, y: 100, name: 'Kalyan East' },
-  { id: 'dombivali', x: 260, y: 340, name: 'Dombivali' },
-  { id: 'ambernath', x: 320, y: 360, name: 'Ambernath' },
-  { id: 'badlapur', x: 380, y: 300, name: 'Badlapur' },
-  { id: 'bhupgaon', x: 420, y: 100, name: 'Bhupgaon' },
-  { id: 'vangani', x: 460, y: 340, name: 'Vangani' },
-  { id: 'khopoli', x: 520, y: 380, name: 'Khopoli' },
-  
-  // Mumbai-Pune Expressway section
-  { id: 'lonavala', x: 580, y: 200, name: 'Lonavala' },
-  { id: 'lonavalacheese', x: 540, y: 60, name: 'Lonavala Cheese' },
-  { id: 'khandala', x: 640, y: 120, name: 'Khandala' },
-  { id: 'khandalafruit', x: 680, y: 50, name: 'Khandala Fruit' },
-  
-  // **IMAGICA - Central Hub**
-  { id: 'imagica', x: 720, y: 280, name: 'Imagica' },
-  
-  // Post-Imagica towards Pune
-  { id: 'dehu', x: 760, y: 200, name: 'Dehu' },
-  { id: 'talegaon', x: 800, y: 280, name: 'Talegaon' },
-  { id: 'manchar', x: 820, y: 380, name: 'Manchar Lake' },
-  { id: 'jejuri', x: 780, y: 360, name: 'Jejuri' },
-  { id: 'pawankhind', x: 760, y: 420, name: 'Pawankhind' },
-  
-  // Pune outskirts and suburbs
-  { id: 'koregaonpark', x: 840, y: 140, name: 'Koregaon Park' },
-  { id: 'hinjewadi', x: 880, y: 100, name: 'Hinjewadi' },
-  { id: 'chakan', x: 960, y: 180, name: 'Chakan' },
-  
-  // Pune area connections
-  { id: 'katraj', x: 800, y: 300, name: 'Katraj' },
-  { id: 'pimpricinch', x: 860, y: 340, name: 'Pimpri-Chinchwad' },
-  { id: 'akurdi', x: 900, y: 400, name: 'Akurdi' },
-  { id: 'hadapsar', x: 840, y: 440, name: 'Hadapsar' },
-  
-  // Central Pune - Historic areas
-  { id: 'punecity', x: 980, y: 300, name: 'Pune City Center' },
-  { id: 'shaniwarwada', x: 950, y: 360, name: 'Shaniwar Wada' },
-  { id: 'dagdusheth', x: 880, y: 280, name: 'Dagdusheth Temple' },
-  { id: 'westpune', x: 750, y: 480, name: 'West Pune' },
-];
+const EARTH_RADIUS_KM = 6371;
+const DEG_TO_RAD = Math.PI / 180;
+const ROAD_NEIGHBORS = 4;
+const ROAD_LONG_LINK_STEP = 19;
+const indiaCityCoordinates = cityCoordinates.filter((city) => city.countryCode === 'IN');
 
-// Define roads (edges) connecting the nodes with realistic distances
-export const roads: Road[] = [
-  // Main highway route: Thane → Pune
-  { fromId: 'thane', toId: 'kalyan', distance: 20 },
-  { fromId: 'kalyan', toId: 'dombivali', distance: 15 },
-  { fromId: 'dombivali', toId: 'ambernath', distance: 18 },
-  { fromId: 'ambernath', toId: 'badlapur', distance: 20 },
-  { fromId: 'badlapur', toId: 'vangani', distance: 18 },
-  { fromId: 'vangani', toId: 'khopoli', distance: 22 },
-  { fromId: 'khopoli', toId: 'lonavala', distance: 25 },
-  { fromId: 'lonavala', toId: 'khandala', distance: 15 },
-  { fromId: 'khandala', toId: 'imagica', distance: 20 },
-  
-  // Post-Imagica to Pune
-  { fromId: 'imagica', toId: 'dehu', distance: 22 },
-  { fromId: 'dehu', toId: 'talegaon', distance: 18 },
-  { fromId: 'talegaon', toId: 'jejuri', distance: 20 },
-  { fromId: 'jejuri', toId: 'koregaonpark', distance: 25 },
-  { fromId: 'koregaonpark', toId: 'hinjewadi', distance: 18 },
-  { fromId: 'hinjewadi', toId: 'chakan', distance: 20 },
-  { fromId: 'chakan', toId: 'punecity', distance: 18 },
-  
-  // Alternative routes and branches
-  { fromId: 'thane', toId: 'nthane', distance: 15 },
-  { fromId: 'nthane', toId: 'kalyaneast', distance: 18 },
-  { fromId: 'kalyaneast', toId: 'kalyan', distance: 25 },
-  
-  { fromId: 'badlapur', toId: 'bhupgaon', distance: 22 },
-  { fromId: 'bhupgaon', toId: 'lonavala', distance: 35 },
-  
-  // Lonavala bypass routes
-  { fromId: 'lonavala', toId: 'lonavalacheese', distance: 12 },
-  { fromId: 'lonavalacheese', toId: 'bhupgaon', distance: 30 },
-  
-  { fromId: 'khandala', toId: 'khandalafruit', distance: 10 },
-  { fromId: 'khandalafruit', toId: 'lonavalacheese', distance: 18 },
-  
-  // Routes around Imagica hub
-  { fromId: 'imagica', toId: 'manchar', distance: 30 },
-  { fromId: 'imagica', toId: 'pawankhind', distance: 28 },
-  { fromId: 'manchar', toId: 'talegaon', distance: 35 },
-  { fromId: 'pawankhind', toId: 'jejuri', distance: 25 },
-  
-  // Pune area connections
-  { fromId: 'koregaonpark', toId: 'katraj', distance: 25 },
-  { fromId: 'katraj', toId: 'hadapsar', distance: 30 },
-  
-  { fromId: 'chakan', toId: 'pimpricinch', distance: 22 },
-  { fromId: 'pimpricinch', toId: 'akurdi', distance: 18 },
-  { fromId: 'akurdi', toId: 'hadapsar', distance: 25 },
-  
-  // Central Pune connections
-  { fromId: 'punecity', toId: 'shaniwarwada', distance: 8 },
-  { fromId: 'punecity', toId: 'dagdusheth', distance: 12 },
-  { fromId: 'punecity', toId: 'westpune', distance: 28 },
-  { fromId: 'shaniwarwada', toId: 'dagdusheth', distance: 15 },
-  
-  { fromId: 'katraj', toId: 'punecity', distance: 35 },
-  
-  // Western route connections
-  { fromId: 'dehu', toId: 'pawankhind', distance: 32 },
-  { fromId: 'dehu', toId: 'westpune', distance: 40 },
-  { fromId: 'westpune', toId: 'hadapsar', distance: 35 },
-  { fromId: 'westpune', toId: 'shaniwarwada', distance: 45 },
-  
-  // Eastern connectivity
-  { fromId: 'talegaon', toId: 'manchar', distance: 22 },
-  { fromId: 'jejuri', toId: 'manchar', distance: 18 },
-  { fromId: 'manchar', toId: 'pawankhind', distance: 25 },
-  
-  // Long-distance shortcuts for alternate routing
-  { fromId: 'lonavala', toId: 'imagica', distance: 40 },
-  { fromId: 'lonavalacheese', toId: 'imagica', distance: 60 },
-  { fromId: 'khopoli', toId: 'imagica', distance: 45 },
-];
+function toRadians(degrees: number): number {
+  return degrees * DEG_TO_RAD;
+}
+
+function createId(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+
+  const a =
+    sinLat * sinLat +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * sinLon * sinLon;
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return EARTH_RADIUS_KM * c;
+}
+
+const averageLatitudeRadians =
+  indiaCityCoordinates.length > 0
+    ? (indiaCityCoordinates.reduce((sum, city) => sum + city.lat, 0) / indiaCityCoordinates.length) *
+      DEG_TO_RAD
+    : 0;
+const mapProjectionScale = 12;
+
+function projectToPoint(lat: number, lon: number): Point {
+  return {
+    x: lon * Math.cos(averageLatitudeRadians) * mapProjectionScale,
+    y: lat * mapProjectionScale,
+  };
+}
+
+function createRoadKey(fromId: string, toId: string): string {
+  return fromId < toId ? `${fromId}|${toId}` : `${toId}|${fromId}`;
+}
+
+export const mapNodes: MapNode[] = indiaCityCoordinates.map((city) => {
+  const projected = projectToPoint(city.lat, city.lon);
+  return {
+    id: createId(city.name),
+    name: city.name,
+    lat: city.lat,
+    lon: city.lon,
+    countryCode: city.countryCode,
+    x: projected.x,
+    y: projected.y,
+  };
+});
+
+const nodeById = new Map(mapNodes.map((node) => [node.id, node]));
+const roadsByKey: Map<string, Road> = new Map();
+
+function addRoad(fromNode: MapNode, toNode: MapNode): void {
+  if (fromNode.id === toNode.id) {
+    return;
+  }
+
+  const roadKey = createRoadKey(fromNode.id, toNode.id);
+  if (roadsByKey.has(roadKey)) {
+    return;
+  }
+
+  const distanceKm = haversineDistanceKm(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
+
+  roadsByKey.set(roadKey, {
+    fromId: fromNode.id,
+    toId: toNode.id,
+    distance: Number(distanceKm.toFixed(2)),
+  });
+}
+
+function buildAdjacencyFromRoads(roadMap: Map<string, Road>): Map<string, Set<string>> {
+  const adjacency = new Map<string, Set<string>>();
+
+  mapNodes.forEach((node) => {
+    adjacency.set(node.id, new Set<string>());
+  });
+
+  roadMap.forEach((road) => {
+    adjacency.get(road.fromId)?.add(road.toId);
+    adjacency.get(road.toId)?.add(road.fromId);
+  });
+
+  return adjacency;
+}
+
+function getConnectedComponents(roadMap: Map<string, Road>): string[][] {
+  const adjacency = buildAdjacencyFromRoads(roadMap);
+  const visited = new Set<string>();
+  const components: string[][] = [];
+
+  for (const node of mapNodes) {
+    if (visited.has(node.id)) {
+      continue;
+    }
+
+    const stack = [node.id];
+    const component: string[] = [];
+
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (!current || visited.has(current)) {
+        continue;
+      }
+
+      visited.add(current);
+      component.push(current);
+
+      const neighbors = adjacency.get(current);
+      if (!neighbors) {
+        continue;
+      }
+
+      neighbors.forEach((neighborId) => {
+        if (!visited.has(neighborId)) {
+          stack.push(neighborId);
+        }
+      });
+    }
+
+    components.push(component);
+  }
+
+  return components;
+}
+
+function connectSeparateComponents(): void {
+  let components = getConnectedComponents(roadsByKey);
+
+  while (components.length > 1) {
+    const baseComponent = components[0];
+
+    for (let i = 1; i < components.length; i += 1) {
+      const targetComponent = components[i];
+      let bestPair: { from: MapNode; to: MapNode; distance: number } | null = null;
+
+      for (const fromId of baseComponent) {
+        const fromNode = nodeById.get(fromId);
+        if (!fromNode) {
+          continue;
+        }
+
+        for (const toId of targetComponent) {
+          const toNode = nodeById.get(toId);
+          if (!toNode) {
+            continue;
+          }
+
+          const distance = haversineDistanceKm(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
+          if (!bestPair || distance < bestPair.distance) {
+            bestPair = { from: fromNode, to: toNode, distance };
+          }
+        }
+      }
+
+      if (bestPair) {
+        addRoad(bestPair.from, bestPair.to);
+      }
+    }
+
+    components = getConnectedComponents(roadsByKey);
+  }
+}
+
+mapNodes.forEach((node, index) => {
+  const nearestNodes = mapNodes
+    .filter((candidate) => candidate.id !== node.id)
+    .map((candidate) => ({
+      node: candidate,
+      distance: haversineDistanceKm(node.lat, node.lon, candidate.lat, candidate.lon),
+    }))
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, ROAD_NEIGHBORS);
+
+  nearestNodes.forEach(({ node: nearestNode }) => {
+    addRoad(node, nearestNode);
+  });
+
+  const longRangeNode = mapNodes[(index + ROAD_LONG_LINK_STEP) % mapNodes.length];
+  addRoad(node, longRangeNode);
+});
+
+connectSeparateComponents();
+
+export const roads: Road[] = Array.from(roadsByKey.values());
 
 export function getNodeById(id: string): MapNode | undefined {
-  return mapNodes.find(node => node.id === id);
+  return nodeById.get(id);
+}
+
+export function getAerialDistanceKm(fromId: string, toId: string): number {
+  const fromNode = nodeById.get(fromId);
+  const toNode = nodeById.get(toId);
+
+  if (!fromNode || !toNode) {
+    return Infinity;
+  }
+
+  return haversineDistanceKm(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
 }
 
 export function getConnectedNodes(nodeId: string): MapNode[] {
   const connectedIds = roads
-    .filter(road => road.fromId === nodeId || road.toId === nodeId)
-    .map(road => road.fromId === nodeId ? road.toId : road.fromId);
-  
-  return connectedIds.map(id => mapNodes.find(node => node.id === id)!).filter(Boolean);
+    .filter((road) => road.fromId === nodeId || road.toId === nodeId)
+    .map((road) => (road.fromId === nodeId ? road.toId : road.fromId));
+
+  return connectedIds
+    .map((id) => nodeById.get(id))
+    .filter((node): node is MapNode => Boolean(node));
 }
 
 export function getRoadDistance(fromId: string, toId: string): number {
   const road = roads.find(
-    r => (r.fromId === fromId && r.toId === toId) || (r.fromId === toId && r.toId === fromId)
+    (r) =>
+      (r.fromId === fromId && r.toId === toId) ||
+      (r.fromId === toId && r.toId === fromId)
   );
+
   return road?.distance ?? Infinity;
 }

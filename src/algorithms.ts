@@ -1,12 +1,14 @@
 import type { PathfindingResult } from './types';
-import { getConnectedNodes, getRoadDistance, getNodeById, mapNodes } from './mapData';
+import {
+  getAerialDistanceKm,
+  getConnectedNodes,
+  getRoadDistance,
+  getNodeById,
+  mapNodes,
+} from './mapData';
 
 function heuristic(nodeId: string, endId: string): number {
-  const node = getNodeById(nodeId);
-  const endNode = getNodeById(endId);
-  if (!node || !endNode) return Infinity;
-  // Euclidean distance heuristic
-  return Math.hypot(node.x - endNode.x, node.y - endNode.y);
+  return getAerialDistanceKm(nodeId, endId);
 }
 
 export function aStar(

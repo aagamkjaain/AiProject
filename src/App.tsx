@@ -16,10 +16,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 function App() {
+  const appRef = useRef<HTMLDivElement>(null);
   const [start, setStart] = useState<string | null>(null);
   const [end, setEnd] = useState<string | null>(null);
   const [path, setPath] = useState<string[]>([]);
   const [visited, setVisited] = useState<string[]>([]);
+  const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  const [focusSignal, setFocusSignal] = useState(0);
   const [isRunning, setIsRunning] = useState(false);
   const [distance, setDistance] = useState<number>(0);
   const [pathFound, setPathFound] = useState<boolean | null>(null);
@@ -35,6 +38,9 @@ function App() {
     if (isRunning) {
       return;
     }
+
+    setFocusedNodeId(nodeId);
+    setFocusSignal((previous) => previous + 1);
 
     // Toggle start point
     if (start === nodeId) {
@@ -64,6 +70,28 @@ function App() {
     setStart(nodeId);
     setEnd(null);
   }, [start, end, isRunning]);
+
+  const handleSearchCity = useCallback((nodeId: string) => {
+    setFocusedNodeId(nodeId);
+    setFocusSignal((previous) => previous + 1);
+  }, []);
+
+  const handleViewRotationChange = useCallback((azimuth: number, polar: number) => {
+    const appElement = appRef.current;
+    if (!appElement) {
+      return;
+    }
+
+    const shiftX = azimuth * 24;
+    const shiftY = (polar - Math.PI / 2) * 24;
+
+    appElement.style.setProperty('--space-shift-x', `${shiftX.toFixed(2)}px`);
+    appElement.style.setProperty('--space-shift-y', `${shiftY.toFixed(2)}px`);
+    appElement.style.setProperty('--space-shift-x-far', `${(-shiftX * 0.42).toFixed(2)}px`);
+    appElement.style.setProperty('--space-shift-y-far', `${(-shiftY * 0.42).toFixed(2)}px`);
+    appElement.style.setProperty('--space-spin', `${(azimuth * 7.4).toFixed(2)}deg`);
+    appElement.style.setProperty('--space-spin-far', `${(azimuth * -2.8).toFixed(2)}deg`);
+  }, []);
 
   const runAlgorithm = useCallback(
     (algorithmFn: typeof aStar | typeof dijkstra) => {
@@ -136,14 +164,24 @@ function App() {
     setEnd(null);
     setPath([]);
     setVisited([]);
+    setFocusedNodeId(null);
+    setFocusSignal((previous) => previous + 1);
     setDistance(0);
     setPathFound(null);
   }, []);
 
+  const readyToRun = Boolean(start && end && !isRunning);
+
   return (
-    <div className="app">
+    <div ref={appRef} className="app">
+      <div className="space-layer" aria-hidden="true">
+        <div className="space-nebula" />
+        <div className="space-stars stars-near" />
+        <div className="space-stars stars-far" />
+      </div>
+
       <header className="app-header">
-        <h1>AI FT 3</h1>
+        <h1>ball noer</h1>
       </header>
 
       <div className="app-layout">
@@ -153,6 +191,9 @@ function App() {
             end={end}
             path={path}
             visited={visited}
+            focusNodeId={focusedNodeId}
+            focusSignal={focusSignal}
+            onViewRotationChange={handleViewRotationChange}
             onNodeClick={handleNodeClick}
           />
         </div>
@@ -161,15 +202,34 @@ function App() {
           <Controls
             start={start}
             end={end}
-            onRunAStar={handleRunAStar}
-            onRunDijkstra={handleRunDijkstra}
             onClearAll={handleClearAll}
             isRunning={isRunning}
             pathFound={pathFound}
             distance={distance}
+            focusedNodeId={focusedNodeId}
+            onSearchCity={handleSearchCity}
           />
         </aside>
       </div>
+
+      <footer className="algorithm-dock" aria-label="Pathfinding algorithms">
+        <button
+          type="button"
+          onClick={handleRunAStar}
+          disabled={!readyToRun}
+          className="algo-btn algo-btn-primary"
+        >
+          Run A*
+        </button>
+        <button
+          type="button"
+          onClick={handleRunDijkstra}
+          disabled={!readyToRun}
+          className="algo-btn algo-btn-primary"
+        >
+          Run Dijkstra
+        </button>
+      </footer>
     </div>
   );
 }
