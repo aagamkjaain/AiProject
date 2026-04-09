@@ -21,6 +21,10 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const FOCUS_CAMERA_DISTANCE = 240;
 const FOCUS_CAMERA_LIFT = 60;
 const FOCUS_TRANSITION_MS = 2000;
+const PATH_EDGE_REVEAL_SPEED = 2.45;
+const ROAD_OPACITY = 0.4;
+const LABEL_PROXIMITY_RADIUS_MIN_PX = 80;
+const LABEL_PROXIMITY_RADIUS_MAX_PX = 190;
 
 function createSpherePosition(index: number, total: number): THREE.Vector3 {
   const ratio = (index + 0.5) / total;
@@ -46,7 +50,7 @@ function createArcPoints(from: THREE.Vector3, to: THREE.Vector3): THREE.Vector3[
     .multiplyScalar(SPHERE_RADIUS + 70 + from.distanceTo(to) * 0.05);
 
   const curve = new THREE.QuadraticBezierCurve3(from, outwardPoint, to);
-  return curve.getPoints(24);
+  return curve.getPoints(42);
 }
 
 function easeInOutQuint(value: number): number {
@@ -74,11 +78,20 @@ export const Map3D: React.FC<Map3DProps> = ({
 
   const raycasterRef = useRef<THREE.Raycaster>(new THREE.Raycaster());
   const pointerRef = useRef<THREE.Vector2>(new THREE.Vector2());
+  const pointerInsideRef = useRef(false);
 
   const nodeMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
   const labelSpritesRef = useRef<Map<string, THREE.Sprite>>(new Map());
   const nodePositionsRef = useRef<Map<string, THREE.Vector3>>(new Map());
-  const roadLinesRef = useRef<Array<{ fromId: string; toId: string; line: THREE.Line }>>([]);
+  const roadLinesRef = useRef<
+    Array<{
+      fromId: string;
+      toId: string;
+      line: THREE.Line;
+      isPathRoad: boolean;
+      revealProgress: number;
+    }>
+  >([]);
 
   const hoveredNodeRef = useRef<THREE.Mesh | null>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
@@ -109,13 +122,13 @@ export const Map3D: React.FC<Map3DProps> = ({
     pathEdgeSet: new Set<string>(),
   });
 
-  const COLOR_NODE_DEFAULT = 0x4a4a4a;
-  const COLOR_NODE_START = 0xffffff;
-  const COLOR_NODE_END = 0xaaaaaa;
-  const COLOR_NODE_PATH = 0xff2222; // Red for best path
-  const COLOR_NODE_VISITED = 0xffffff; // White for traversed
-  const COLOR_ROAD_DEFAULT = 0x2a2a2a;
-  const COLOR_ROAD_PATH = 0xffffff;
+  const COLOR_NODE_DEFAULT = 0xffffff;
+  const COLOR_NODE_START = 0x37d67a;
+  const COLOR_NODE_END = 0xff3b3b;
+  const COLOR_NODE_PATH = 0xff6ecf;
+  const COLOR_NODE_VISITED = 0xffe65f;
+  const COLOR_ROAD_DEFAULT = 0xffffff;
+  const COLOR_ROAD_PATH = 0xff6ecf;
 
   useEffect(() => {
     onNodeClickRef.current = onNodeClick;
@@ -214,16 +227,32 @@ export const Map3D: React.FC<Map3DProps> = ({
       const material = mesh.material as THREE.MeshStandardMaterial;
       const isPrimaryHighlight = isStart || isEnd || isOnPath;
       material.color.setHex(color);
-      material.emissive.setHex(isPrimaryHighlight ? color : isVisited ? 0x111111 : 0x000000);
-      material.emissiveIntensity = isPrimaryHighlight ? 0.35 : isVisited ? 0.2 : 0.05;
+      material.emissive.setHex(isPrimaryHighlight ? color : isVisited ? 0x5a5a5a : 0x0f0f0f);
+      material.emissiveIntensity = isPrimaryHighlight ? 0.42 : isVisited ? 0.24 : 0.09;
     });
 
-    roadLinesRef.current.forEach(({ fromId, toId, line }) => {
+    roadLinesRef.current.forEach((roadLine) => {
+      const { fromId, toId, line } = roadLine;
       const roadKey = fromId < toId ? `${fromId}|${toId}` : `${toId}|${fromId}`;
       const isPathRoad = pathEdgeSet.has(roadKey);
       const material = line.material as THREE.LineBasicMaterial;
+      const geometry = line.geometry as THREE.BufferGeometry;
+      const pointCount = geometry.getAttribute('position').count;
+
       material.color.setHex(isPathRoad ? COLOR_ROAD_PATH : COLOR_ROAD_DEFAULT);
-      material.opacity = isPathRoad ? 1 : 0.62;
+      material.opacity = ROAD_OPACITY;
+
+      if (isPathRoad) {
+        if (!roadLine.isPathRoad) {
+          roadLine.revealProgress = 0;
+          geometry.setDrawRange(0, Math.min(2, pointCount));
+        }
+      } else {
+        roadLine.revealProgress = 1;
+        geometry.setDrawRange(0, pointCount);
+      }
+
+      roadLine.isPathRoad = isPathRoad;
     });
   }, [start, end, path, visited]);
 
@@ -234,7 +263,7 @@ export const Map3D: React.FC<Map3DProps> = ({
     }
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x020202, 0.00095);
+    scene.fog = new THREE.FogExp2(0x0a0a0d, 0.00055);
     sceneRef.current = scene;
 
     const width = container.clientWidth;
@@ -248,6 +277,7 @@ export const Map3D: React.FC<Map3DProps> = ({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(width, height);
     renderer.setClearColor(0x000000, 0);
+    renderer.setClearAlpha(0);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
@@ -256,6 +286,8 @@ export const Map3D: React.FC<Map3DProps> = ({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 0.35;
     controls.target.set(0, 0, 0);
     controls.minDistance = 500;
     controls.maxDistance = 1900;
@@ -263,19 +295,23 @@ export const Map3D: React.FC<Map3DProps> = ({
     controls.maxPolarAngle = Math.PI - 0.1;
     controlsRef.current = controls;
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.46);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.76);
     scene.add(ambientLight);
 
-    const keyLight = new THREE.DirectionalLight(0xffffff, 1.05);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.28);
     keyLight.position.set(260, 520, 410);
     keyLight.castShadow = true;
     keyLight.shadow.mapSize.width = 2048;
     keyLight.shadow.mapSize.height = 2048;
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x888888, 0.35);
+    const rimLight = new THREE.DirectionalLight(0xbfcfff, 0.58);
     rimLight.position.set(-520, -180, -320);
     scene.add(rimLight);
+
+    const fillLight = new THREE.DirectionalLight(0xdde8ff, 0.42);
+    fillLight.position.set(-220, 160, 540);
+    scene.add(fillLight);
 
     const starCount = 2600;
     const starPositions = new Float32Array(starCount * 3);
@@ -340,6 +376,7 @@ export const Map3D: React.FC<Map3DProps> = ({
         map: texture,
         transparent: true,
         depthWrite: false,
+        opacity: 0,
       });
 
       const sprite = new THREE.Sprite(material);
@@ -370,10 +407,14 @@ export const Map3D: React.FC<Map3DProps> = ({
 
       const points = createArcPoints(fromPosition, toPosition);
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const pointCount = geometry.getAttribute('position').count;
+      geometry.setDrawRange(0, pointCount);
       const material = new THREE.LineBasicMaterial({
         color: COLOR_ROAD_DEFAULT,
         transparent: true,
-        opacity: 0.62,
+        opacity: ROAD_OPACITY,
+        depthTest: false,
+        depthWrite: false,
       });
 
       const line = new THREE.Line(geometry, material);
@@ -382,6 +423,8 @@ export const Map3D: React.FC<Map3DProps> = ({
         fromId: road.fromId,
         toId: road.toId,
         line,
+        isPathRoad: false,
+        revealProgress: 1,
       });
     });
 
@@ -397,10 +440,10 @@ export const Map3D: React.FC<Map3DProps> = ({
       const geometry = new THREE.SphereGeometry(7.6, 24, 24);
       const material = new THREE.MeshStandardMaterial({
         color: COLOR_NODE_DEFAULT,
-        emissive: 0x000000,
-        emissiveIntensity: 0.05,
-        roughness: 0.36,
-        metalness: 0.18,
+        emissive: 0x141414,
+        emissiveIntensity: 0.09,
+        roughness: 0.28,
+        metalness: 0.24,
       });
 
       const mesh = new THREE.Mesh(geometry, material);
@@ -443,6 +486,7 @@ export const Map3D: React.FC<Map3DProps> = ({
 
     const onPointerMove = (event: PointerEvent) => {
       updatePointer(event);
+      pointerInsideRef.current = true;
       const nextHovered = pickNode();
 
       if (hoveredNodeRef.current === nextHovered) {
@@ -463,6 +507,8 @@ export const Map3D: React.FC<Map3DProps> = ({
 
     const onPointerDown = (event: PointerEvent) => {
       dragStartRef.current = { x: event.clientX, y: event.clientY };
+      updatePointer(event);
+      pointerInsideRef.current = true;
       renderer.domElement.style.cursor = 'grabbing';
     };
 
@@ -475,6 +521,7 @@ export const Map3D: React.FC<Map3DProps> = ({
         : Number.POSITIVE_INFINITY;
 
       updatePointer(event);
+      pointerInsideRef.current = true;
 
       if (dragDistance < 8) {
         const clickedNode = pickNode();
@@ -489,6 +536,8 @@ export const Map3D: React.FC<Map3DProps> = ({
 
     const onPointerLeave = () => {
       dragStartRef.current = null;
+      pointerInsideRef.current = false;
+      pointerRef.current.set(2, 2);
       if (hoveredNodeRef.current) {
         hoveredNodeRef.current.userData.hovered = false;
       }
@@ -517,6 +566,8 @@ export const Map3D: React.FC<Map3DProps> = ({
     resizeObserver.observe(container);
 
     const clock = new THREE.Clock();
+  const viewportSize = new THREE.Vector2();
+  const projectedPosition = new THREE.Vector3();
     const animate = () => {
       const focusTransition = focusTransitionRef.current;
       if (focusTransition) {
@@ -540,11 +591,48 @@ export const Map3D: React.FC<Map3DProps> = ({
         }
       }
 
-      const elapsed = clock.getElapsedTime();
+      const delta = clock.getDelta();
+      const elapsed = clock.elapsedTime;
       const currentState = visualStateRef.current;
       const hoveredNodeId = (hoveredNodeRef.current?.userData.nodeId as string | undefined) ?? null;
       const activeFocusedNodeId =
         performance.now() < focusedUntilRef.current ? focusedNodeIdRef.current : null;
+      renderer.getSize(viewportSize);
+      const pointerInside = pointerInsideRef.current;
+      const pointerScreenX = (pointerRef.current.x * 0.5 + 0.5) * viewportSize.x;
+      const pointerScreenY = (-pointerRef.current.y * 0.5 + 0.5) * viewportSize.y;
+      const zoomDistance = camera.position.distanceTo(controls.target);
+      const zoomRange = Math.max(1, controls.maxDistance - controls.minDistance);
+      const zoomProgress = THREE.MathUtils.clamp(
+        (controls.maxDistance - zoomDistance) / zoomRange,
+        0,
+        1
+      );
+      const labelProximityRadiusPx = THREE.MathUtils.lerp(
+        LABEL_PROXIMITY_RADIUS_MIN_PX,
+        LABEL_PROXIMITY_RADIUS_MAX_PX,
+        zoomProgress
+      );
+
+      roadLinesRef.current.forEach((roadLine) => {
+        if (!roadLine.isPathRoad) {
+          return;
+        }
+
+        const geometry = roadLine.line.geometry as THREE.BufferGeometry;
+        const pointCount = geometry.getAttribute('position').count;
+        if (pointCount < 2) {
+          return;
+        }
+
+        if (roadLine.revealProgress < 1) {
+          roadLine.revealProgress = Math.min(1, roadLine.revealProgress + delta * PATH_EDGE_REVEAL_SPEED);
+          const drawCount = Math.max(2, Math.floor(pointCount * roadLine.revealProgress));
+          geometry.setDrawRange(0, drawCount);
+        } else if (geometry.drawRange.count !== pointCount) {
+          geometry.setDrawRange(0, pointCount);
+        }
+      });
 
       nodeMeshesRef.current.forEach((mesh, nodeId) => {
         const material = mesh.material as THREE.MeshStandardMaterial;
@@ -584,24 +672,38 @@ export const Map3D: React.FC<Map3DProps> = ({
           const baseScaleY =
             typeof label.userData.baseScaleY === 'number' ? label.userData.baseScaleY : 16;
 
+          const staticPosition = nodePositionsRef.current.get(nodeId);
+          let isWithinPointerRadius = false;
+          if (staticPosition && pointerInside && viewportSize.x > 0 && viewportSize.y > 0) {
+            projectedPosition.copy(staticPosition).project(camera);
+
+            if (projectedPosition.z >= -1 && projectedPosition.z <= 1) {
+              const nodeScreenX = (projectedPosition.x * 0.5 + 0.5) * viewportSize.x;
+              const nodeScreenY = (-projectedPosition.y * 0.5 + 0.5) * viewportSize.y;
+              const pointerDistance = Math.hypot(nodeScreenX - pointerScreenX, nodeScreenY - pointerScreenY);
+              isWithinPointerRadius = pointerDistance <= labelProximityRadiusPx;
+            }
+          }
+
+          const isLabelVisible = isHovered || isWithinPointerRadius;
           const labelPulse = isHovered
             ? 1.6 + Math.sin(elapsed * 7.2 + phase) * 0.07
-            : isFocused
-              ? 1.34 + Math.sin(elapsed * 6 + phase) * 0.05
+            : isLabelVisible
+              ? 1.08 + Math.sin(elapsed * 4 + phase) * 0.03
               : 1;
           const targetScaleX = baseScaleX * labelPulse;
           const targetScaleY = baseScaleY * labelPulse;
 
           label.scale.x = THREE.MathUtils.lerp(label.scale.x, targetScaleX, 0.2);
           label.scale.y = THREE.MathUtils.lerp(label.scale.y, targetScaleY, 0.2);
-          labelMaterial.opacity = isHovered || isFocused ? 1 : isImportant ? 0.92 : 0.78;
+          const targetLabelOpacity = isLabelVisible ? (isHovered ? 1 : 0.94) : 0;
+          labelMaterial.opacity = THREE.MathUtils.lerp(labelMaterial.opacity, targetLabelOpacity, 0.22);
 
-          const staticPosition = nodePositionsRef.current.get(nodeId);
           if (staticPosition) {
             const distanceFactor = isHovered
               ? LABEL_DISTANCE_FACTOR + 0.045
-              : isFocused
-                ? LABEL_DISTANCE_FACTOR + 0.03
+              : isLabelVisible
+                ? LABEL_DISTANCE_FACTOR + 0.02
                 : LABEL_DISTANCE_FACTOR;
             label.position.copy(staticPosition.clone().multiplyScalar(distanceFactor));
           }
@@ -674,6 +776,7 @@ export const Map3D: React.FC<Map3DProps> = ({
       }
 
       hoveredNodeRef.current = null;
+      pointerInsideRef.current = false;
       focusedNodeIdRef.current = null;
       focusedUntilRef.current = 0;
       focusTransitionRef.current = null;

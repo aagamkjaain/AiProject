@@ -5,7 +5,7 @@
   padding: 10px;
   border-radius: 8px;
   width: fit-content;
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+  /*box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);*/
 }
 
 .grid-cell {
@@ -32,14 +32,14 @@
   background: linear-gradient(135deg, #b8c832, #a8b820);
   border: 2px solid #b8c832;
   font-weight: bold;
-  box-shadow: inset 0 0 6px rgba(184, 200, 50, 0.4);
+  /*box-shadow: inset 0 0 6px rgba(184, 200, 50, 0.4);*/
 }
 
 .grid-cell-end {
   background: linear-gradient(135deg, #c9d63a, #b8c832);
   border: 2px solid #c9d63a;
   font-weight: bold;
-  box-shadow: inset 0 0 6px rgba(201, 214, 58, 0.4);
+  /*box-shadow: inset 0 0 6px rgba(201, 214, 58, 0.4);*/
 }
 
 .grid-cell-path {
