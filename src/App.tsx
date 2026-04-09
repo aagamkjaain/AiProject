@@ -26,6 +26,7 @@ function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [distance, setDistance] = useState<number>(0);
   const [pathFound, setPathFound] = useState<boolean | null>(null);
+  const [algorithmUsed, setAlgorithmUsed] = useState<string | null>(null);
   const activeRunIdRef = useRef(0);
 
   useEffect(() => {
@@ -109,7 +110,7 @@ function App() {
   }, []);
 
   const runAlgorithm = useCallback(
-    (algorithmFn: typeof aStar | typeof dijkstra) => {
+    (algorithmFn: typeof aStar | typeof dijkstra, algorithmName: string) => {
       if (!start || !end) return;
 
       const runId = activeRunIdRef.current + 1;
@@ -120,6 +121,7 @@ function App() {
       setVisited([]);
       setDistance(0);
       setPathFound(null);
+      setAlgorithmUsed(algorithmName);
 
       const result: PathfindingResult = algorithmFn(start, end);
 
@@ -169,8 +171,8 @@ function App() {
     [start, end]
   );
 
-  const handleRunAStar = () => runAlgorithm(aStar);
-  const handleRunDijkstra = () => runAlgorithm(dijkstra);
+  const handleRunAStar = () => runAlgorithm(aStar, 'A*');
+  const handleRunDijkstra = () => runAlgorithm(dijkstra, 'Dijkstra');
 
   const handleClearAll = useCallback(() => {
     activeRunIdRef.current += 1;
@@ -183,6 +185,7 @@ function App() {
     setFocusSignal((previous) => previous + 1);
     setDistance(0);
     setPathFound(null);
+    setAlgorithmUsed(null);
   }, []);
 
   const readyToRun = Boolean(start && end && !isRunning);
@@ -219,6 +222,7 @@ function App() {
               visited={visited}
               focusNodeId={focusedNodeId}
               focusSignal={focusSignal}
+              algorithmUsed={algorithmUsed}
               onViewRotationChange={handleViewRotationChange}
               onNodeClick={handleNodeClick}
             />

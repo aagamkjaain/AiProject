@@ -81,10 +81,10 @@
 }
 
 .node-path {
-  fill: #b8c832;
-  stroke: #c9d63a;
+  fill: #5a2d82;
+  stroke: #7a4da2;
   stroke-width: 2;
-  filter: drop-shadow(0 0 6px rgba(184, 200, 50, 0.6));
+  filter: drop-shadow(0 0 6px rgba(90, 45, 130, 0.6));
   animation: pulse-node 1.5s ease-in-out infinite;
 }
 

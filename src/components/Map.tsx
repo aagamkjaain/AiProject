@@ -71,6 +71,11 @@ export const Map: React.FC<MapProps> = ({
         if (!fromNode || !toNode) return null;
 
         const isOnPath = getRoadClass(road.fromId, road.toId) === 'road-path';
+        const pathFound = path.length > 0;
+        
+        // Hide roads if path is found and road is not on the path
+        if (pathFound && !isOnPath) return null;
+
         const midpoint = getMidpoint(fromNode.x, fromNode.y, toNode.x, toNode.y);
 
         return (
@@ -103,6 +108,10 @@ export const Map: React.FC<MapProps> = ({
         const isEnd = end === node.id;
         const onPath = isNodeOnPath(node.id);
         const isVisited = isNodeVisited(node.id);
+        const pathFound = path.length > 0;
+        
+        // Hide nodes if path is found and node is not start, end, or on path
+        if (pathFound && !onPath && !isStart && !isEnd) return null;
 
         let nodeClass = 'node';
         if (isStart) nodeClass += ' node-start';

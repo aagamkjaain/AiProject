@@ -11,6 +11,7 @@ interface Map3DProps {
   visited: string[];
   focusNodeId: string | null;
   focusSignal: number;
+  algorithmUsed: string | null;
   onViewRotationChange?: (azimuth: number, polar: number) => void;
   onNodeClick: (nodeId: string) => void;
 }
@@ -66,6 +67,7 @@ export const Map3D: React.FC<Map3DProps> = ({
   visited,
   focusNodeId,
   focusSignal,
+  algorithmUsed,
   onViewRotationChange,
   onNodeClick,
 }) => {
@@ -82,12 +84,14 @@ export const Map3D: React.FC<Map3DProps> = ({
 
   const nodeMeshesRef = useRef<Map<string, THREE.Mesh>>(new Map());
   const labelSpritesRef = useRef<Map<string, THREE.Sprite>>(new Map());
+  const algorithmLabelRef = useRef<THREE.Sprite | null>(null);
   const nodePositionsRef = useRef<Map<string, THREE.Vector3>>(new Map());
   const roadLinesRef = useRef<
     Array<{
       fromId: string;
       toId: string;
       line: THREE.Line;
+      tube?: THREE.Mesh;
       isPathRoad: boolean;
       revealProgress: number;
     }>
@@ -125,10 +129,10 @@ export const Map3D: React.FC<Map3DProps> = ({
   const COLOR_NODE_DEFAULT = 0xffffff;
   const COLOR_NODE_START = 0x37d67a;
   const COLOR_NODE_END = 0xff3b3b;
-  const COLOR_NODE_PATH = 0xff6ecf;
+  const COLOR_NODE_PATH = 0x5a2d82;
   const COLOR_NODE_VISITED = 0xffe65f;
   const COLOR_ROAD_DEFAULT = 0xffffff;
-  const COLOR_ROAD_PATH = 0xff6ecf;
+  const COLOR_ROAD_PATH = 0x5a2d82;
 
   useEffect(() => {
     onNodeClickRef.current = onNodeClick;
@@ -188,6 +192,107 @@ export const Map3D: React.FC<Map3DProps> = ({
   }, [focusNodeId, focusSignal]);
 
   useEffect(() => {
+    // Create algorithm label when algorithm is used
+    if (algorithmUsed && sceneRef.current && labelSpritesRef.current) {
+      // Remove old label if exists
+      if (algorithmLabelRef.current) {
+        sceneRef.current.remove(algorithmLabelRef.current);
+        if (algorithmLabelRef.current.material instanceof THREE.SpriteMaterial) {
+          algorithmLabelRef.current.material.dispose();
+        }
+      }
+
+      // Define algorithm descriptions
+      const algorithmInfo: Record<string, { title: string; description: string }> = {
+        'A*': {
+          title: 'A* Algorithm',
+          description:
+            'Uses heuristic guidance to find shortest path faster.\nEstimates distance to goal and explores promising nodes first.',
+        },
+        Dijkstra: {
+          title: "Dijkstra's Algorithm",
+          description:
+            'Explores all nodes systematically by distance.\nGuarantees shortest path without heuristic guidance.',
+        },
+      };
+
+      const info = algorithmInfo[algorithmUsed];
+
+      // Create new label
+      const canvas = document.createElement('canvas');
+      canvas.width = 1280;
+      canvas.height = 384;
+      const context = canvas.getContext('2d');
+      if (context) {
+        context.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Background box with purple gradient
+        const gradient = context.createLinearGradient(0, 0, canvas.width, canvas.height);
+        gradient.addColorStop(0, 'rgba(90, 45, 130, 0.95)');
+        gradient.addColorStop(1, 'rgba(122, 77, 162, 0.85)');
+        context.fillStyle = gradient;
+        context.fillRect(40, 40, canvas.width - 80, canvas.height - 80);
+
+        // Border
+        context.strokeStyle = 'rgba(184, 200, 50, 0.6)';
+        context.lineWidth = 6;
+        context.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+
+        // Title
+        context.fillStyle = '#b8c832';
+        context.textAlign = 'center';
+        context.textBaseline = 'top';
+        context.font = 'bold 56px Righteous, Anton, sans-serif';
+        context.fillText(info.title, canvas.width / 2, 70);
+
+        // Separator line
+        context.strokeStyle = 'rgba(184, 200, 50, 0.4)';
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(100, 155);
+        context.lineTo(canvas.width - 100, 155);
+        context.stroke();
+
+        // Description text
+        const lines = info.description.split('\n');
+        context.fillStyle = '#ffffff';
+        context.textAlign = 'center';
+        context.font = 'bold 32px Righteous, Anton, sans-serif';
+
+        let yOffset = 190;
+        lines.forEach((line) => {
+          context.fillText(line, canvas.width / 2, yOffset);
+          yOffset += 70;
+        });
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+
+        const material = new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthWrite: false,
+          opacity: 0.95,
+        });
+
+        const sprite = new THREE.Sprite(material);
+        sprite.scale.set(160, 48, 1);
+        sprite.position.set(0, 320, 0);
+        sprite.userData = { isAlgorithmLabel: true };
+        sceneRef.current.add(sprite);
+        algorithmLabelRef.current = sprite;
+      }
+    } else if (!algorithmUsed && algorithmLabelRef.current && sceneRef.current) {
+      // Remove label when algorithm is cleared
+      sceneRef.current.remove(algorithmLabelRef.current);
+      if (algorithmLabelRef.current.material instanceof THREE.SpriteMaterial) {
+        algorithmLabelRef.current.material.dispose();
+      }
+      algorithmLabelRef.current = null;
+    }
+  }, [algorithmUsed]);
+
+  useEffect(() => {
     const pathSet = new Set(path);
     const visitedSet = new Set(visited);
     const pathEdgeSet = new Set<string>();
@@ -212,6 +317,7 @@ export const Map3D: React.FC<Map3DProps> = ({
       const isEnd = end === nodeId;
       const isOnPath = pathSet.has(nodeId);
       const isVisited = visitedSet.has(nodeId);
+      const pathFound = pathSet.size > 0;
 
       let color = COLOR_NODE_DEFAULT;
       if (isStart) {
@@ -229,6 +335,27 @@ export const Map3D: React.FC<Map3DProps> = ({
       material.color.setHex(color);
       material.emissive.setHex(isPrimaryHighlight ? color : isVisited ? 0x5a5a5a : 0x0f0f0f);
       material.emissiveIntensity = isPrimaryHighlight ? 0.42 : isVisited ? 0.24 : 0.09;
+
+      // Hide nodes when path is found, only show start, end, and path nodes
+      if (pathFound && !isStart && !isEnd && !isOnPath) {
+        mesh.visible = false;
+      } else {
+        mesh.visible = true;
+      }
+    });
+
+    // Hide labels for non-path nodes when a path is found
+    labelSpritesRef.current.forEach((label, nodeId) => {
+      const isStart = start === nodeId;
+      const isEnd = end === nodeId;
+      const isOnPath = pathSet.has(nodeId);
+      const pathFound = pathSet.size > 0;
+
+      if (pathFound && !isStart && !isEnd && !isOnPath) {
+        label.visible = false;
+      } else {
+        label.visible = true;
+      }
     });
 
     roadLinesRef.current.forEach((roadLine) => {
@@ -238,9 +365,18 @@ export const Map3D: React.FC<Map3DProps> = ({
       const material = line.material as THREE.LineBasicMaterial;
       const geometry = line.geometry as THREE.BufferGeometry;
       const pointCount = geometry.getAttribute('position').count;
+      const pathFound = pathSet.size > 0;
 
       material.color.setHex(isPathRoad ? COLOR_ROAD_PATH : COLOR_ROAD_DEFAULT);
-      material.opacity = ROAD_OPACITY;
+      material.opacity = isPathRoad ? 1 : ROAD_OPACITY;
+      material.linewidth = isPathRoad ? 20 : 8;
+
+      // Hide roads that are not part of the path when a path is found
+      if (pathFound && !isPathRoad) {
+        line.visible = false;
+      } else {
+        line.visible = true;
+      }
 
       if (isPathRoad) {
         if (!roadLine.isPathRoad) {
@@ -415,6 +551,7 @@ export const Map3D: React.FC<Map3DProps> = ({
         opacity: ROAD_OPACITY,
         depthTest: false,
         depthWrite: false,
+        linewidth: 8,
       });
 
       const line = new THREE.Line(geometry, material);
@@ -784,6 +921,7 @@ export const Map3D: React.FC<Map3DProps> = ({
       labelSpritesRef.current.clear();
       nodePositionsRef.current.clear();
       roadLinesRef.current = [];
+      algorithmLabelRef.current = null;
 
       controlsRef.current = null;
       rendererRef.current = null;
