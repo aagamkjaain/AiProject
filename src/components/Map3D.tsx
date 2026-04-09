@@ -112,8 +112,8 @@ export const Map3D: React.FC<Map3DProps> = ({
   const COLOR_NODE_DEFAULT = 0x4a4a4a;
   const COLOR_NODE_START = 0xffffff;
   const COLOR_NODE_END = 0xaaaaaa;
-  const COLOR_NODE_PATH = 0xffffff;
-  const COLOR_NODE_VISITED = 0x222222;
+  const COLOR_NODE_PATH = 0xff2222; // Red for best path
+  const COLOR_NODE_VISITED = 0xffffff; // White for traversed
   const COLOR_ROAD_DEFAULT = 0x2a2a2a;
   const COLOR_ROAD_PATH = 0xffffff;
 

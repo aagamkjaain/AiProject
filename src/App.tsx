@@ -6,7 +6,7 @@ import { aStar, dijkstra } from './algorithms';
 import type { PathfindingResult } from './types';
 
 const VISITED_STEP_MS = 140;
-const PATH_STEP_MS = 320;
+const PATH_STEP_MS = 700;
 const TRANSITION_PAUSE_MS = 420;
 
 function sleep(ms: number): Promise<void> {
@@ -136,7 +136,12 @@ function App() {
             }
 
             setPath((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]));
-            await sleep(PATH_STEP_MS);
+            // Add a little bounce effect by clearing and restoring the path node
+            await sleep(PATH_STEP_MS / 2);
+            setPath((prev) => prev.filter((id) => id !== nodeId));
+            await sleep(120);
+            setPath((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]));
+            await sleep(PATH_STEP_MS / 2);
           }
         }
 
